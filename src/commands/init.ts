@@ -9,9 +9,11 @@ import {
   checkPort5432Free,
   checkSSH,
   ensurePnpm,
+  getBrewPostgresService,
   getPort5432DockerContainers,
   getPort5432Pids,
   killPort5432Pids,
+  stopBrewService,
   stopDockerContainers,
   waitForPort5432Free,
 } from "../lib/preflight.js";
@@ -49,37 +51,45 @@ export async function init(name: string): Promise<void> {
   await runStep("Checking Node version", checkNode);
   await runStep("Checking Docker installed", checkDockerInstalled);
   await runStep("Checking Docker running", checkDockerRunning);
-  // Port 5432 — offer to kill conflicting process
+  // Port 5432 — only intervene for local processes; Docker containers are
+  // left alone (docker compose up -d is idempotent and handles them)
   const portSpinner = clack.spinner();
   portSpinner.start("Checking port 5432");
   try {
     await checkPort5432Free();
     portSpinner.stop("Checking port 5432");
   } catch {
-    portSpinner.stop("Port 5432 in use", 1);
-    const [pids, containers] = await Promise.all([
+    const [pids, containers, brewSvc] = await Promise.all([
       getPort5432Pids(),
       getPort5432DockerContainers(),
+      getBrewPostgresService(),
     ]);
-    const pidLabel = pids.length ? ` (PID: ${pids.join(", ")})` : "";
-    const containerLabel = containers.length
-      ? `, Docker: ${containers.join(", ")}`
-      : "";
-    const kill = await clack.confirm({
-      message: `Port 5432 is in use${pidLabel}${containerLabel}. Kill the conflicting process?`,
-      initialValue: true,
-    });
-    if (clack.isCancel(kill) || !kill)
-      abort("Port 5432 in use. Stop the conflicting process.");
-    if (containers.length) await stopDockerContainers(containers);
-    if (pids.length) await killPort5432Pids(pids);
-    try {
-      await waitForPort5432Free();
-      clack.log.success("Port 5432 is now free");
-    } catch {
-      abort(
-        "Port 5432 still in use. Run: lsof -ti :5432 | xargs kill -9",
-      );
+
+    if (containers.length) {
+      // Docker already owns 5432 — compose up will reconcile it, no kill needed
+      portSpinner.stop(`Port 5432 in use by Docker (${containers.join(", ")}) — reusing`);
+    } else {
+      // Local process (brew/system postgres) — must be stopped so Docker can bind
+      portSpinner.stop("Port 5432 in use by local process", 1);
+      const pidLabel = pids.length ? ` (PID: ${pids.join(", ")})` : "";
+      const brewLabel = brewSvc ? `, brew: ${brewSvc}` : "";
+      const kill = await clack.confirm({
+        message: `Port 5432 is in use${pidLabel}${brewLabel}. Stop it so Docker can use the port?`,
+        initialValue: true,
+      });
+      if (clack.isCancel(kill) || !kill)
+        abort("Port 5432 in use. Stop the conflicting process.");
+      // Stop brew service first — kill -9 alone gets restarted by launchd
+      if (brewSvc) await stopBrewService(brewSvc);
+      if (pids.length) await killPort5432Pids(pids);
+      try {
+        await waitForPort5432Free();
+        clack.log.success("Port 5432 is now free");
+      } catch {
+        abort(
+          `Port 5432 still in use. Manually run: brew services stop ${brewSvc ?? "postgresql"} && lsof -ti :5432 | xargs kill -9`,
+        );
+      }
     }
   }
   await runStep("Checking SSH access to GitHub", checkSSH);

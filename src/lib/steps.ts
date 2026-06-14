@@ -21,19 +21,24 @@ export async function waitForPostgres(
   retries = 20,
   delayMs = 1000,
 ): Promise<void> {
-  // Verify the container is actually running (not exited due to port conflict)
-  const { stdout } = await run(
+  // Verify Docker actually owns port 5432 on the host (not just that the
+  // container is running — it can run with the port binding silently failed
+  // if a local Postgres process reclaimed 5432 after the kill)
+  const { stdout: portOut } = await run(
     "docker",
-    ["compose", "ps", "postgres", "--status", "running", "--format", "{{.Name}}"],
+    ["compose", "port", "postgres", "5432"],
     cwd,
   ).catch(() => ({ stdout: "" }));
-  if (!stdout.trim()) {
+  if (!portOut.trim()) {
     throw new Error(
-      "Postgres container failed to start. Port 5432 may still be in use by another process. Check: docker compose logs postgres",
+      "Docker Postgres could not bind port 5432 — a local Postgres process " +
+        "reclaimed it after the kill (launchd auto-restart). " +
+        "Stop it with: brew services stop postgresql && lsof -ti :5432 | xargs kill -9\n" +
+        "Then re-run: vanta init",
     );
   }
 
-  // Poll via host port so we validate the port mapping is actually reachable
+  // Poll until Postgres on the host port is ready to accept connections
   for (let i = 0; i < retries; i++) {
     try {
       await run("pg_isready", ["-h", "127.0.0.1", "-p", "5432", "-U", "postgres"]);

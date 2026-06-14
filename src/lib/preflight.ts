@@ -53,6 +53,26 @@ export async function killPort5432Pids(pids: string[]): Promise<void> {
   }
 }
 
+export async function getBrewPostgresService(): Promise<string | null> {
+  try {
+    const { stdout } = await run("brew", ["services", "list", "--json"]);
+    const services = JSON.parse(stdout) as Array<{
+      name: string;
+      status: string;
+    }>;
+    const svc = services.find(
+      (s) => s.name.startsWith("postgresql") && s.status === "started",
+    );
+    return svc?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function stopBrewService(name: string): Promise<void> {
+  await run("brew", ["services", "stop", name]);
+}
+
 export async function getPort5432DockerContainers(): Promise<string[]> {
   try {
     const { stdout } = await run("docker", [
