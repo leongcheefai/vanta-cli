@@ -1,13 +1,14 @@
 import { Command } from "commander";
 import { doctor } from "./commands/doctor.js";
 import { init } from "./commands/init.js";
+import pkg from "../package.json" with { type: "json" };
 
 const program = new Command();
 
 program
   .name("vanta")
   .description("Bootstrap vanta-base-admin for new team members")
-  .version("1.0.2");
+  .version(pkg.version);
 
 program
   .command("init [name]")

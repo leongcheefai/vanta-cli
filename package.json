@@ -1,6 +1,6 @@
 {
   "name": "vantatech-cli",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "bin": {
     "vanta": "dist/index.js"
