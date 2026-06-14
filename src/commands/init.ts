@@ -20,6 +20,7 @@ import {
 import {
   cloneRepo,
   composeUp,
+  ensureDatabase,
   installDeps,
   runMigrations,
   seedAdmin,
@@ -162,6 +163,7 @@ export async function init(name: string): Promise<void> {
   // Docker + migrations
   await runStep("Starting Docker services", () => composeUp(projectDir));
   await runStep("Waiting for Postgres", () => waitForPostgres(projectDir));
+  await runStep("Creating database", () => ensureDatabase(projectDir));
   await runStep("Running migrations", () => runMigrations(projectDir));
 
   // Admin user

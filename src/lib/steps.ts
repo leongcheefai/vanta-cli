@@ -52,6 +52,30 @@ export async function waitForPostgres(
   );
 }
 
+export async function ensureDatabase(
+  cwd: string,
+  dbName = "vanta_base_admin",
+): Promise<void> {
+  // docker-compose.yml uses POSTGRES_DB: praxor_kit (legacy name) so the
+  // target database must be created explicitly before migrations run
+  await run(
+    "docker",
+    [
+      "compose",
+      "exec",
+      "postgres",
+      "psql",
+      "-U",
+      "postgres",
+      "-c",
+      `CREATE DATABASE "${dbName}";`,
+    ],
+    cwd,
+  ).catch(() => {
+    // "already exists" is fine — ignore
+  });
+}
+
 export async function runMigrations(cwd: string): Promise<void> {
   await run("pnpm", ["db:migrate"], cwd);
 }
