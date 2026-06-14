@@ -14,9 +14,6 @@ async function run(cmd, args, cwd) {
   const result = await execa(cmd, args, { cwd });
   return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
-async function runInherit(cmd, args, cwd) {
-  await execa(cmd, args, { cwd, stdio: "inherit" });
-}
 
 // src/commands/doctor.ts
 async function check(label, fn) {
@@ -39,6 +36,8 @@ async function tcpConnect(host, port) {
 }
 async function doctor() {
   clack.intro("vanta doctor");
+  const envExists = existsSync(".env");
+  const envVars = envExists ? parseEnv(readFileSync(".env", "utf8")) : {};
   const results = await Promise.all([
     check("Node >= 22", async () => {
       const major = parseInt(process.version.slice(1).split(".")[0], 10);
@@ -53,19 +52,17 @@ async function doctor() {
       await run("docker", ["info"]);
     }),
     check(".env exists", async () => {
-      if (!existsSync(".env")) throw new Error(".env not found in current directory");
+      if (!envExists) throw new Error(".env not found in current directory");
     }),
     check("Required env vars", async () => {
-      if (!existsSync(".env")) throw new Error(".env not found");
-      const vars = parseEnv(readFileSync(".env", "utf8"));
+      if (!envExists) throw new Error(".env not found");
       const required = ["DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "APP_URL", "VITE_API_URL"];
-      const missing = required.filter((k) => !vars[k]);
+      const missing = required.filter((k) => !envVars[k]);
       if (missing.length) throw new Error(`Missing: ${missing.join(", ")}`);
     }),
     check("Postgres reachable", async () => {
-      if (!existsSync(".env")) throw new Error(".env not found");
-      const vars = parseEnv(readFileSync(".env", "utf8"));
-      const url = vars["DATABASE_URL"];
+      if (!envExists) throw new Error(".env not found");
+      const url = envVars["DATABASE_URL"];
       if (!url) throw new Error("DATABASE_URL not set");
       const match = url.match(/postgresql:\/\/[^@]+@([^:/]+):(\d+)/);
       if (!match) throw new Error("Cannot parse DATABASE_URL host:port");
@@ -173,7 +170,7 @@ async function checkPort5432Free() {
 }
 async function checkSSH() {
   try {
-    await run("ssh", ["-T", "-o", "StrictHostKeyChecking=no", "git@github.com"]);
+    await run("ssh", ["-T", "-o", "StrictHostKeyChecking=accept-new", "git@github.com"]);
   } catch (err) {
     if (err?.stderr?.includes("successfully authenticated")) return;
     throw new Error(
@@ -185,8 +182,11 @@ async function ensurePnpm() {
   try {
     await run("pnpm", ["--version"]);
   } catch {
-    await run("corepack", ["enable"]);
-    await run("corepack", ["prepare", "pnpm@latest", "--activate"]);
+    try {
+      await run("corepack", ["enable"]);
+      await run("corepack", ["prepare", "pnpm@latest", "--activate"]);
+    } catch {
+    }
   }
 }
 
@@ -195,19 +195,19 @@ import { existsSync as existsSync2 } from "fs";
 var REPO_URL = "git@github.com:leongcheefai/vanta-base-admin.git";
 async function cloneRepo(name) {
   if (existsSync2(name)) return;
-  await runInherit("git", ["clone", REPO_URL, name]);
+  await run("git", ["clone", REPO_URL, name]);
 }
 async function installDeps(cwd) {
-  await runInherit("pnpm", ["install"], cwd);
+  await run("pnpm", ["install"], cwd);
 }
 async function composeUp(cwd) {
-  await runInherit("docker", ["compose", "up", "-d"], cwd);
+  await run("docker", ["compose", "up", "-d"], cwd);
 }
 async function runMigrations(cwd) {
-  await runInherit("pnpm", ["db:migrate"], cwd);
+  await run("pnpm", ["db:migrate"], cwd);
 }
 async function seedAdmin(cwd, email, password2) {
-  await runInherit("pnpm", ["db:seed", "--email", email, "--password", password2], cwd);
+  await run("pnpm", ["db:seed", "--email", email, "--password", password2], cwd);
 }
 
 // src/commands/init.ts
