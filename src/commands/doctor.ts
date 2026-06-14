@@ -32,6 +32,9 @@ async function tcpConnect(host: string, port: number): Promise<void> {
 export async function doctor(): Promise<void> {
   clack.intro('vanta doctor')
 
+  const envExists = existsSync('.env')
+  const envVars = envExists ? parseEnv(readFileSync('.env', 'utf8')) : {}
+
   const results = await Promise.all([
     check('Node >= 22', async () => {
       const major = parseInt(process.version.slice(1).split('.')[0], 10)
@@ -46,19 +49,17 @@ export async function doctor(): Promise<void> {
       await run('docker', ['info'])
     }),
     check('.env exists', async () => {
-      if (!existsSync('.env')) throw new Error('.env not found in current directory')
+      if (!envExists) throw new Error('.env not found in current directory')
     }),
     check('Required env vars', async () => {
-      if (!existsSync('.env')) throw new Error('.env not found')
-      const vars = parseEnv(readFileSync('.env', 'utf8'))
+      if (!envExists) throw new Error('.env not found')
       const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET', 'BETTER_AUTH_URL', 'APP_URL', 'VITE_API_URL']
-      const missing = required.filter((k) => !vars[k])
+      const missing = required.filter((k) => !envVars[k])
       if (missing.length) throw new Error(`Missing: ${missing.join(', ')}`)
     }),
     check('Postgres reachable', async () => {
-      if (!existsSync('.env')) throw new Error('.env not found')
-      const vars = parseEnv(readFileSync('.env', 'utf8'))
-      const url = vars['DATABASE_URL']
+      if (!envExists) throw new Error('.env not found')
+      const url = envVars['DATABASE_URL']
       if (!url) throw new Error('DATABASE_URL not set')
       const match = url.match(/postgresql:\/\/[^@]+@([^:/]+):(\d+)/)
       if (!match) throw new Error('Cannot parse DATABASE_URL host:port')

@@ -40,8 +40,8 @@ export async function checkPort5432Free(): Promise<void> {
 
 export async function checkSSH(): Promise<void> {
   try {
-    // StrictHostKeyChecking=no avoids interactive host-key prompt on first run
-    await run('ssh', ['-T', '-o', 'StrictHostKeyChecking=no', 'git@github.com'])
+    // accept-new auto-accepts unknown hosts but rejects changed keys (prevents MITM on key rotation)
+    await run('ssh', ['-T', '-o', 'StrictHostKeyChecking=accept-new', 'git@github.com'])
   } catch (err: any) {
     if (err?.stderr?.includes('successfully authenticated')) return
     throw new Error(
@@ -54,7 +54,11 @@ export async function ensurePnpm(): Promise<void> {
   try {
     await run('pnpm', ['--version'])
   } catch {
-    await run('corepack', ['enable'])
-    await run('corepack', ['prepare', 'pnpm@latest', '--activate'])
+    try {
+      await run('corepack', ['enable'])
+      await run('corepack', ['prepare', 'pnpm@latest', '--activate'])
+    } catch {
+      // non-fatal — pnpm install step will fail with a clear error if pnpm is still absent
+    }
   }
 }
