@@ -5,10 +5,9 @@
   "bin": {
     "vanta": "./dist/index.js"
   },
-  "files": ["dist", "scripts"],
+  "files": ["dist"],
   "scripts": {
     "build": "tsup",
-    "postinstall": "cd \"$HOME\" && node \"${npm_config_prefix}/lib/node_modules/vanta-cli/scripts/postinstall.js\" 2>/dev/null || true",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "lint": "biome check .",
