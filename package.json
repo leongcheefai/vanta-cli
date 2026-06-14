@@ -7,7 +7,6 @@
   },
   "files": ["dist"],
   "scripts": {
-    "prepare": "tsup",
     "build": "tsup",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
