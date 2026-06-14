@@ -38,10 +38,16 @@ export async function waitForPostgres(
     );
   }
 
-  // Poll until Postgres on the host port is ready to accept connections
   for (let i = 0; i < retries; i++) {
     try {
-      await run("pg_isready", ["-h", "127.0.0.1", "-p", "5432", "-U", "postgres"]);
+      await run("pg_isready", [
+        "-h",
+        "127.0.0.1",
+        "-p",
+        "5432",
+        "-U",
+        "postgres",
+      ]);
       return;
     } catch {
       await new Promise((r) => setTimeout(r, delayMs));

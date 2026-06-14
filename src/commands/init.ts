@@ -14,7 +14,6 @@ import {
   getPort5432Pids,
   killPort5432Pids,
   stopBrewService,
-  stopDockerContainers,
   waitForPort5432Free,
 } from "../lib/preflight.js";
 import {
@@ -48,7 +47,6 @@ function abort(msg: string): never {
 export async function init(name: string): Promise<void> {
   clack.intro("vanta init");
 
-  // Preflight checks — sequential, halt on first failure
   await runStep("Checking Node version", checkNode);
   await runStep("Checking Docker installed", checkDockerInstalled);
   await runStep("Checking Docker running", checkDockerRunning);
@@ -68,7 +66,9 @@ export async function init(name: string): Promise<void> {
 
     if (containers.length) {
       // Docker already owns 5432 — compose up will reconcile it, no kill needed
-      portSpinner.stop(`Port 5432 in use by Docker (${containers.join(", ")}) — reusing`);
+      portSpinner.stop(
+        `Port 5432 in use by Docker (${containers.join(", ")}) — reusing`,
+      );
     } else {
       // Local process (brew/system postgres) — must be stopped so Docker can bind
       portSpinner.stop("Port 5432 in use by local process", 1);
@@ -96,15 +96,12 @@ export async function init(name: string): Promise<void> {
   await runStep("Checking SSH access to GitHub", checkSSH);
   await runStep("Ensuring pnpm", ensurePnpm);
 
-  // Clone
   await runStep(`Cloning into ./${name}`, () => cloneRepo(name));
 
   const projectDir = join(process.cwd(), name);
 
-  // Install deps
   await runStep("Installing dependencies", () => installDeps(projectDir));
 
-  // .env wizard
   const envPath = join(projectDir, ".env");
   let shouldWriteEnv = true;
 
@@ -114,7 +111,7 @@ export async function init(name: string): Promise<void> {
       initialValue: false,
     });
     if (clack.isCancel(overwrite)) abort("Aborted.");
-    shouldWriteEnv = overwrite as boolean;
+    shouldWriteEnv = overwrite;
   }
 
   if (shouldWriteEnv) {
@@ -149,24 +146,22 @@ export async function init(name: string): Promise<void> {
     if (clack.isCancel(githubFeedback)) abort("Aborted.");
 
     const content = buildEnvContent({
-      resend: resend as boolean,
-      stripe: stripe as boolean,
-      googleOAuth: googleOAuth as boolean,
-      s3: s3 as boolean,
-      githubFeedback: githubFeedback as boolean,
+      resend: resend,
+      stripe: stripe,
+      googleOAuth: googleOAuth,
+      s3: s3,
+      githubFeedback: githubFeedback,
     });
 
     writeFileSync(envPath, content);
     clack.log.success(".env written");
   }
 
-  // Docker + migrations
   await runStep("Starting Docker services", () => composeUp(projectDir));
   await runStep("Waiting for Postgres", () => waitForPostgres(projectDir));
   await runStep("Creating database", () => ensureDatabase(projectDir));
   await runStep("Running migrations", () => runMigrations(projectDir));
 
-  // Admin user
   const createAdmin = await clack.confirm({
     message: "Create initial admin user?",
     initialValue: true,
@@ -186,7 +181,7 @@ export async function init(name: string): Promise<void> {
         message: "Admin password (min 8 chars):",
       });
       if (clack.isCancel(pw)) abort("Aborted.");
-      if ((pw as string).length < 8) {
+      if (pw.length < 8) {
         clack.log.warn("Password must be at least 8 characters.");
         continue;
       }
@@ -196,12 +191,12 @@ export async function init(name: string): Promise<void> {
         clack.log.warn("Passwords do not match. Try again.");
         continue;
       }
-      password = pw as string;
+      password = pw;
       break;
     }
 
     await runStep("Creating admin user", () =>
-      seedAdmin(projectDir, email as string, password),
+      seedAdmin(projectDir, email, password),
     );
   }
 

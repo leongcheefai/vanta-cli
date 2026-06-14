@@ -103,9 +103,7 @@ export async function waitForPort5432Free(
     try {
       await checkPort5432Free();
       return;
-    } catch {
-      // keep retrying
-    }
+    } catch {}
   }
   throw new Error("Port 5432 still in use after killing process.");
 }

@@ -7,7 +7,7 @@ const program = new Command();
 program
   .name("vanta")
   .description("Bootstrap vanta-base-admin for new team members")
-  .version("1.0.0");
+  .version("1.0.2");
 
 program
   .command("init [name]")
