@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events'
 import { createConnection } from 'net'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('net', () => ({ createConnection: vi.fn() }))
 vi.mock('../src/lib/exec.js', () => ({
@@ -9,6 +9,9 @@ vi.mock('../src/lib/exec.js', () => ({
 }))
 
 import { run } from '../src/lib/exec.js'
+
+beforeEach(() => vi.clearAllMocks())
+
 import {
   checkDockerInstalled,
   checkDockerRunning,
@@ -87,11 +90,13 @@ describe('checkSSH', () => {
     })
     await expect(checkSSH()).rejects.toThrow('SSH auth failed')
   })
+  it('resolves when run succeeds (exit 0)', async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: '', stderr: '' })
+    await expect(checkSSH()).resolves.toBeUndefined()
+  })
 })
 
 describe('ensurePnpm', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('does nothing when pnpm is already installed', async () => {
     vi.mocked(run).mockResolvedValue({ stdout: '9.0.0', stderr: '' })
     await expect(ensurePnpm()).resolves.toBeUndefined()

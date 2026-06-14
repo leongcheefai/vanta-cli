@@ -32,6 +32,7 @@ export async function checkPort5432Free(): Promise<void> {
       reject(new Error('Port 5432 in use. Stop the conflicting process.'))
     })
     conn.on('error', () => {
+      conn.destroy()
       resolve()
     })
   })
@@ -39,6 +40,7 @@ export async function checkPort5432Free(): Promise<void> {
 
 export async function checkSSH(): Promise<void> {
   try {
+    // StrictHostKeyChecking=no avoids interactive host-key prompt on first run
     await run('ssh', ['-T', '-o', 'StrictHostKeyChecking=no', 'git@github.com'])
   } catch (err: any) {
     if (err?.stderr?.includes('successfully authenticated')) return
