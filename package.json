@@ -8,6 +8,7 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsup",
+    "postinstall": "node scripts/postinstall.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "lint": "biome check .",
