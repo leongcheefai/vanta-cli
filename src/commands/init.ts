@@ -18,9 +18,9 @@ async function runStep(label: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn()
     spinner.stop(label)
-  } catch (err: any) {
+  } catch (err: unknown) {
     spinner.stop(label, 1)
-    clack.cancel(err.message)
+    clack.cancel(err instanceof Error ? err.message : String(err))
     process.exit(1)
   }
 }
