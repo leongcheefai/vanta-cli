@@ -21,13 +21,22 @@ export async function waitForPostgres(
   retries = 20,
   delayMs = 1000,
 ): Promise<void> {
+  // Verify the container is actually running (not exited due to port conflict)
+  const { stdout } = await run(
+    "docker",
+    ["compose", "ps", "postgres", "--status", "running", "--format", "{{.Name}}"],
+    cwd,
+  ).catch(() => ({ stdout: "" }));
+  if (!stdout.trim()) {
+    throw new Error(
+      "Postgres container failed to start. Port 5432 may still be in use by another process. Check: docker compose logs postgres",
+    );
+  }
+
+  // Poll via host port so we validate the port mapping is actually reachable
   for (let i = 0; i < retries; i++) {
     try {
-      await run(
-        "docker",
-        ["compose", "exec", "postgres", "pg_isready", "-U", "postgres"],
-        cwd,
-      );
+      await run("pg_isready", ["-h", "127.0.0.1", "-p", "5432", "-U", "postgres"]);
       return;
     } catch {
       await new Promise((r) => setTimeout(r, delayMs));
