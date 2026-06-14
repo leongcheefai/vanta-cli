@@ -53,6 +53,43 @@ export async function killPort5432Pids(pids: string[]): Promise<void> {
   }
 }
 
+export async function getPort5432DockerContainers(): Promise<string[]> {
+  try {
+    const { stdout } = await run("docker", [
+      "ps",
+      "--filter",
+      "publish=5432",
+      "--format",
+      "{{.Names}}",
+    ]);
+    return stdout.trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function stopDockerContainers(names: string[]): Promise<void> {
+  for (const name of names) {
+    await run("docker", ["stop", name]);
+  }
+}
+
+export async function waitForPort5432Free(
+  retries = 8,
+  delayMs = 500,
+): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      await checkPort5432Free();
+      return;
+    } catch {
+      // keep retrying
+    }
+  }
+  throw new Error("Port 5432 still in use after killing process.");
+}
+
 export async function checkSSH(): Promise<void> {
   try {
     // accept-new auto-accepts unknown hosts but rejects changed keys (prevents MITM on key rotation)

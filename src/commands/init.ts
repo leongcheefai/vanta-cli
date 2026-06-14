@@ -9,8 +9,11 @@ import {
   checkPort5432Free,
   checkSSH,
   ensurePnpm,
+  getPort5432DockerContainers,
   getPort5432Pids,
   killPort5432Pids,
+  stopDockerContainers,
+  waitForPort5432Free,
 } from "../lib/preflight.js";
 import {
   cloneRepo,
@@ -18,6 +21,7 @@ import {
   installDeps,
   runMigrations,
   seedAdmin,
+  waitForPostgres,
 } from "../lib/steps.js";
 
 async function runStep(label: string, fn: () => Promise<void>): Promise<void> {
@@ -53,21 +57,29 @@ export async function init(name: string): Promise<void> {
     portSpinner.stop("Checking port 5432");
   } catch {
     portSpinner.stop("Port 5432 in use", 1);
-    const pids = await getPort5432Pids();
-    const label = pids.length ? ` (PID: ${pids.join(", ")})` : "";
+    const [pids, containers] = await Promise.all([
+      getPort5432Pids(),
+      getPort5432DockerContainers(),
+    ]);
+    const pidLabel = pids.length ? ` (PID: ${pids.join(", ")})` : "";
+    const containerLabel = containers.length
+      ? `, Docker: ${containers.join(", ")}`
+      : "";
     const kill = await clack.confirm({
-      message: `Port 5432 is in use${label}. Kill the conflicting process?`,
+      message: `Port 5432 is in use${pidLabel}${containerLabel}. Kill the conflicting process?`,
       initialValue: true,
     });
     if (clack.isCancel(kill) || !kill)
       abort("Port 5432 in use. Stop the conflicting process.");
-    await killPort5432Pids(pids);
-    await new Promise((r) => setTimeout(r, 500));
+    if (containers.length) await stopDockerContainers(containers);
+    if (pids.length) await killPort5432Pids(pids);
     try {
-      await checkPort5432Free();
+      await waitForPort5432Free();
       clack.log.success("Port 5432 is now free");
     } catch {
-      abort("Port 5432 still in use after killing process.");
+      abort(
+        "Port 5432 still in use. Run: lsof -ti :5432 | xargs kill -9",
+      );
     }
   }
   await runStep("Checking SSH access to GitHub", checkSSH);
@@ -139,6 +151,7 @@ export async function init(name: string): Promise<void> {
 
   // Docker + migrations
   await runStep("Starting Docker services", () => composeUp(projectDir));
+  await runStep("Waiting for Postgres", () => waitForPostgres(projectDir));
   await runStep("Running migrations", () => runMigrations(projectDir));
 
   // Admin user

@@ -215,6 +215,36 @@ async function killPort5432Pids(pids) {
     await run("kill", ["-9", pid]);
   }
 }
+async function getPort5432DockerContainers() {
+  try {
+    const { stdout } = await run("docker", [
+      "ps",
+      "--filter",
+      "publish=5432",
+      "--format",
+      "{{.Names}}"
+    ]);
+    return stdout.trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+async function stopDockerContainers(names) {
+  for (const name of names) {
+    await run("docker", ["stop", name]);
+  }
+}
+async function waitForPort5432Free(retries = 8, delayMs = 500) {
+  for (let i = 0; i < retries; i++) {
+    await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      await checkPort5432Free();
+      return;
+    } catch {
+    }
+  }
+  throw new Error("Port 5432 still in use after killing process.");
+}
 async function checkSSH() {
   try {
     await run("ssh", [
@@ -256,6 +286,23 @@ async function installDeps(cwd) {
 async function composeUp(cwd) {
   await run("docker", ["compose", "up", "-d"], cwd);
 }
+async function waitForPostgres(cwd, retries = 20, delayMs = 1e3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await run(
+        "docker",
+        ["compose", "exec", "postgres", "pg_isready", "-U", "postgres"],
+        cwd
+      );
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error(
+    "Postgres did not become ready in time. Check: docker compose logs postgres"
+  );
+}
 async function runMigrations(cwd) {
   await run("pnpm", ["db:migrate"], cwd);
 }
@@ -292,21 +339,27 @@ async function init(name) {
     portSpinner.stop("Checking port 5432");
   } catch {
     portSpinner.stop("Port 5432 in use", 1);
-    const pids = await getPort5432Pids();
-    const label = pids.length ? ` (PID: ${pids.join(", ")})` : "";
+    const [pids, containers] = await Promise.all([
+      getPort5432Pids(),
+      getPort5432DockerContainers()
+    ]);
+    const pidLabel = pids.length ? ` (PID: ${pids.join(", ")})` : "";
+    const containerLabel = containers.length ? `, Docker: ${containers.join(", ")}` : "";
     const kill = await clack2.confirm({
-      message: `Port 5432 is in use${label}. Kill the conflicting process?`,
+      message: `Port 5432 is in use${pidLabel}${containerLabel}. Kill the conflicting process?`,
       initialValue: true
     });
     if (clack2.isCancel(kill) || !kill)
       abort("Port 5432 in use. Stop the conflicting process.");
-    await killPort5432Pids(pids);
-    await new Promise((r) => setTimeout(r, 500));
+    if (containers.length) await stopDockerContainers(containers);
+    if (pids.length) await killPort5432Pids(pids);
     try {
-      await checkPort5432Free();
+      await waitForPort5432Free();
       clack2.log.success("Port 5432 is now free");
     } catch {
-      abort("Port 5432 still in use after killing process.");
+      abort(
+        "Port 5432 still in use. Run: lsof -ti :5432 | xargs kill -9"
+      );
     }
   }
   await runStep("Checking SSH access to GitHub", checkSSH);
@@ -361,6 +414,7 @@ async function init(name) {
     clack2.log.success(".env written");
   }
   await runStep("Starting Docker services", () => composeUp(projectDir));
+  await runStep("Waiting for Postgres", () => waitForPostgres(projectDir));
   await runStep("Running migrations", () => runMigrations(projectDir));
   const createAdmin = await clack2.confirm({
     message: "Create initial admin user?",
