@@ -1,32 +1,32 @@
-import { Command } from 'commander'
-import { doctor } from './commands/doctor.js'
-import { init } from './commands/init.js'
+import { Command } from "commander";
+import { doctor } from "./commands/doctor.js";
+import { init } from "./commands/init.js";
 
-const program = new Command()
-
-program
-  .name('vanta')
-  .description('Bootstrap vanta-base-admin for new team members')
-  .version('1.0.0')
+const program = new Command();
 
 program
-  .command('init [name]')
-  .description('Full local environment bootstrap')
-  .action((name: string = 'vanta-base-admin') => {
+  .name("vanta")
+  .description("Bootstrap vanta-base-admin for new team members")
+  .version("1.0.0");
+
+program
+  .command("init [name]")
+  .description("Full local environment bootstrap")
+  .action((name = "vanta-base-admin") => {
     init(name).catch((err: Error) => {
-      console.error(err.message)
-      process.exit(1)
-    })
-  })
+      console.error(err.message);
+      process.exit(1);
+    });
+  });
 
 program
-  .command('doctor')
-  .description('Read-only environment health check')
+  .command("doctor")
+  .description("Read-only environment health check")
   .action(() => {
     doctor().catch((err: Error) => {
-      console.error(err.message)
-      process.exit(1)
-    })
-  })
+      console.error(err.message);
+      process.exit(1);
+    });
+  });
 
-program.parse()
+program.parse();

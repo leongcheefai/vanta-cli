@@ -4,9 +4,9 @@
 import { Command } from "commander";
 
 // src/commands/doctor.ts
-import * as clack from "@clack/prompts";
 import { existsSync, readFileSync } from "fs";
 import { createConnection } from "net";
+import * as clack from "@clack/prompts";
 
 // src/lib/exec.ts
 import { execa } from "execa";
@@ -21,7 +21,11 @@ async function check(label, fn) {
     await fn();
     return { label, pass: true };
   } catch (err) {
-    return { label, pass: false, detail: err.message };
+    return {
+      label,
+      pass: false,
+      detail: err instanceof Error ? err.message : String(err)
+    };
   }
 }
 async function tcpConnect(host, port) {
@@ -40,12 +44,12 @@ async function doctor() {
   const envVars = envExists ? parseEnv(readFileSync(".env", "utf8")) : {};
   const results = await Promise.all([
     check("Node >= 22", async () => {
-      const major = parseInt(process.version.slice(1).split(".")[0], 10);
+      const major = Number.parseInt(process.version.slice(1).split(".")[0], 10);
       if (major < 22) throw new Error(`Node ${process.version} (need 22+)`);
     }),
     check("pnpm >= 9", async () => {
       const { stdout } = await run("pnpm", ["--version"]);
-      const major = parseInt(stdout.trim().split(".")[0], 10);
+      const major = Number.parseInt(stdout.trim().split(".")[0], 10);
       if (major < 9) throw new Error(`pnpm ${stdout.trim()} (need 9+)`);
     }),
     check("Docker running", async () => {
@@ -56,17 +60,23 @@ async function doctor() {
     }),
     check("Required env vars", async () => {
       if (!envExists) throw new Error(".env not found");
-      const required = ["DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "APP_URL", "VITE_API_URL"];
+      const required = [
+        "DATABASE_URL",
+        "BETTER_AUTH_SECRET",
+        "BETTER_AUTH_URL",
+        "APP_URL",
+        "VITE_API_URL"
+      ];
       const missing = required.filter((k) => !envVars[k]);
       if (missing.length) throw new Error(`Missing: ${missing.join(", ")}`);
     }),
     check("Postgres reachable", async () => {
       if (!envExists) throw new Error(".env not found");
-      const url = envVars["DATABASE_URL"];
+      const url = envVars.DATABASE_URL;
       if (!url) throw new Error("DATABASE_URL not set");
       const match = url.match(/postgresql:\/\/[^@]+@([^:/]+):(\d+)/);
       if (!match) throw new Error("Cannot parse DATABASE_URL host:port");
-      await tcpConnect(match[1], parseInt(match[2], 10));
+      await tcpConnect(match[1], Number.parseInt(match[2], 10));
     }),
     check("node_modules/.pnpm present", async () => {
       if (!existsSync("node_modules/.pnpm"))
@@ -98,45 +108,69 @@ function parseEnv(content) {
 }
 
 // src/commands/init.ts
-import * as clack2 from "@clack/prompts";
 import { existsSync as existsSync3, writeFileSync } from "fs";
 import { join } from "path";
+import * as clack2 from "@clack/prompts";
 
 // src/lib/env-wizard.ts
 import { randomBytes } from "crypto";
 function buildEnvContent(flags) {
   const secret = randomBytes(33).toString("base64");
   const lines = [
-    `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/vanta_base_admin`,
-    `NODE_ENV=development`,
-    `BETTER_AUTH_URL=http://localhost:3001`,
+    "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/vanta_base_admin",
+    "NODE_ENV=development",
+    "BETTER_AUTH_URL=http://localhost:3001",
     `BETTER_AUTH_SECRET=${secret}`,
-    `APP_URL=http://localhost:3000`,
-    `WEB_URL=http://localhost:4321`,
-    `VITE_API_URL=http://localhost:3001`
+    "APP_URL=http://localhost:3000",
+    "WEB_URL=http://localhost:4321",
+    "VITE_API_URL=http://localhost:3001"
   ];
   if (flags.resend) {
     lines.push("", "# Resend", "RESEND_API_KEY=");
   }
   if (flags.stripe) {
-    lines.push("", "# Stripe", "STRIPE_SECRET_KEY=", "STRIPE_WEBHOOK_SECRET=", "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=");
+    lines.push(
+      "",
+      "# Stripe",
+      "STRIPE_SECRET_KEY=",
+      "STRIPE_WEBHOOK_SECRET=",
+      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="
+    );
   }
   if (flags.googleOAuth) {
-    lines.push("", "# Google OAuth", "GOOGLE_CLIENT_ID=", "GOOGLE_CLIENT_SECRET=");
+    lines.push(
+      "",
+      "# Google OAuth",
+      "GOOGLE_CLIENT_ID=",
+      "GOOGLE_CLIENT_SECRET="
+    );
   }
   if (flags.s3) {
-    lines.push("", "# S3", "S3_ACCESS_KEY_ID=", "S3_SECRET_ACCESS_KEY=", "S3_BUCKET=", "S3_REGION=");
+    lines.push(
+      "",
+      "# S3",
+      "S3_ACCESS_KEY_ID=",
+      "S3_SECRET_ACCESS_KEY=",
+      "S3_BUCKET=",
+      "S3_REGION="
+    );
   }
   if (flags.githubFeedback) {
-    lines.push("", "# GitHub Feedback", "GITHUB_TOKEN=", "GITHUB_FEEDBACK_REPO=");
+    lines.push(
+      "",
+      "# GitHub Feedback",
+      "GITHUB_TOKEN=",
+      "GITHUB_FEEDBACK_REPO="
+    );
   }
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}
+`;
 }
 
 // src/lib/preflight.ts
 import { createConnection as createConnection2 } from "net";
 async function checkNode(version = process.version) {
-  const major = parseInt(version.slice(1).split(".")[0], 10);
+  const major = Number.parseInt(version.slice(1).split(".")[0], 10);
   if (major < 22) {
     throw new Error("Node 22+ required. Install via https://nodejs.org");
   }
@@ -170,9 +204,15 @@ async function checkPort5432Free() {
 }
 async function checkSSH() {
   try {
-    await run("ssh", ["-T", "-o", "StrictHostKeyChecking=accept-new", "git@github.com"]);
+    await run("ssh", [
+      "-T",
+      "-o",
+      "StrictHostKeyChecking=accept-new",
+      "git@github.com"
+    ]);
   } catch (err) {
-    if (err?.stderr?.includes("successfully authenticated")) return;
+    const stderr = typeof err === "object" && err !== null && "stderr" in err ? err.stderr : "";
+    if (stderr.includes("successfully authenticated")) return;
     throw new Error(
       "SSH auth failed. Set up your SSH key: https://docs.github.com/en/authentication/connecting-to-github-with-ssh"
     );
@@ -249,13 +289,25 @@ async function init(name) {
     shouldWriteEnv = overwrite;
   }
   if (shouldWriteEnv) {
-    const resend = await clack2.confirm({ message: "Set up Resend (email)?", initialValue: false });
+    const resend = await clack2.confirm({
+      message: "Set up Resend (email)?",
+      initialValue: false
+    });
     if (clack2.isCancel(resend)) abort("Aborted.");
-    const stripe = await clack2.confirm({ message: "Set up Stripe (payments)?", initialValue: false });
+    const stripe = await clack2.confirm({
+      message: "Set up Stripe (payments)?",
+      initialValue: false
+    });
     if (clack2.isCancel(stripe)) abort("Aborted.");
-    const googleOAuth = await clack2.confirm({ message: "Set up Google OAuth?", initialValue: false });
+    const googleOAuth = await clack2.confirm({
+      message: "Set up Google OAuth?",
+      initialValue: false
+    });
     if (clack2.isCancel(googleOAuth)) abort("Aborted.");
-    const s3 = await clack2.confirm({ message: "Set up S3 (file storage)?", initialValue: false });
+    const s3 = await clack2.confirm({
+      message: "Set up S3 (file storage)?",
+      initialValue: false
+    });
     if (clack2.isCancel(s3)) abort("Aborted.");
     const githubFeedback = await clack2.confirm({
       message: "Set up GitHub Feedback?",
@@ -287,7 +339,9 @@ async function init(name) {
     if (clack2.isCancel(email)) abort("Aborted.");
     let password2;
     while (true) {
-      const pw = await clack2.password({ message: "Admin password (min 8 chars):" });
+      const pw = await clack2.password({
+        message: "Admin password (min 8 chars):"
+      });
       if (clack2.isCancel(pw)) abort("Aborted.");
       if (pw.length < 8) {
         clack2.log.warn("Password must be at least 8 characters.");
@@ -302,7 +356,10 @@ async function init(name) {
       password2 = pw;
       break;
     }
-    await runStep("Creating admin user", () => seedAdmin(projectDir, email, password2));
+    await runStep(
+      "Creating admin user",
+      () => seedAdmin(projectDir, email, password2)
+    );
   }
   clack2.outro(`Done! Run: cd ${name} && pnpm dev`);
 }
