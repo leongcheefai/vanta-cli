@@ -202,6 +202,19 @@ async function checkPort5432Free() {
     });
   });
 }
+async function getPort5432Pids() {
+  try {
+    const { stdout } = await run("lsof", ["-ti", ":5432"]);
+    return stdout.trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+async function killPort5432Pids(pids) {
+  for (const pid of pids) {
+    await run("kill", ["-9", pid]);
+  }
+}
 async function checkSSH() {
   try {
     await run("ssh", [
@@ -272,7 +285,30 @@ async function init(name) {
   await runStep("Checking Node version", checkNode);
   await runStep("Checking Docker installed", checkDockerInstalled);
   await runStep("Checking Docker running", checkDockerRunning);
-  await runStep("Checking port 5432", checkPort5432Free);
+  const portSpinner = clack2.spinner();
+  portSpinner.start("Checking port 5432");
+  try {
+    await checkPort5432Free();
+    portSpinner.stop("Checking port 5432");
+  } catch {
+    portSpinner.stop("Port 5432 in use", 1);
+    const pids = await getPort5432Pids();
+    const label = pids.length ? ` (PID: ${pids.join(", ")})` : "";
+    const kill = await clack2.confirm({
+      message: `Port 5432 is in use${label}. Kill the conflicting process?`,
+      initialValue: true
+    });
+    if (clack2.isCancel(kill) || !kill)
+      abort("Port 5432 in use. Stop the conflicting process.");
+    await killPort5432Pids(pids);
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      await checkPort5432Free();
+      clack2.log.success("Port 5432 is now free");
+    } catch {
+      abort("Port 5432 still in use after killing process.");
+    }
+  }
   await runStep("Checking SSH access to GitHub", checkSSH);
   await runStep("Ensuring pnpm", ensurePnpm);
   await runStep(`Cloning into ./${name}`, () => cloneRepo(name));

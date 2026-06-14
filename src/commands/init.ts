@@ -9,6 +9,8 @@ import {
   checkPort5432Free,
   checkSSH,
   ensurePnpm,
+  getPort5432Pids,
+  killPort5432Pids,
 } from "../lib/preflight.js";
 import {
   cloneRepo,
@@ -43,7 +45,31 @@ export async function init(name: string): Promise<void> {
   await runStep("Checking Node version", checkNode);
   await runStep("Checking Docker installed", checkDockerInstalled);
   await runStep("Checking Docker running", checkDockerRunning);
-  await runStep("Checking port 5432", checkPort5432Free);
+  // Port 5432 — offer to kill conflicting process
+  const portSpinner = clack.spinner();
+  portSpinner.start("Checking port 5432");
+  try {
+    await checkPort5432Free();
+    portSpinner.stop("Checking port 5432");
+  } catch {
+    portSpinner.stop("Port 5432 in use", 1);
+    const pids = await getPort5432Pids();
+    const label = pids.length ? ` (PID: ${pids.join(", ")})` : "";
+    const kill = await clack.confirm({
+      message: `Port 5432 is in use${label}. Kill the conflicting process?`,
+      initialValue: true,
+    });
+    if (clack.isCancel(kill) || !kill)
+      abort("Port 5432 in use. Stop the conflicting process.");
+    await killPort5432Pids(pids);
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      await checkPort5432Free();
+      clack.log.success("Port 5432 is now free");
+    } catch {
+      abort("Port 5432 still in use after killing process.");
+    }
+  }
   await runStep("Checking SSH access to GitHub", checkSSH);
   await runStep("Ensuring pnpm", ensurePnpm);
 

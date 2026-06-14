@@ -38,6 +38,21 @@ export async function checkPort5432Free(): Promise<void> {
   });
 }
 
+export async function getPort5432Pids(): Promise<string[]> {
+  try {
+    const { stdout } = await run("lsof", ["-ti", ":5432"]);
+    return stdout.trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function killPort5432Pids(pids: string[]): Promise<void> {
+  for (const pid of pids) {
+    await run("kill", ["-9", pid]);
+  }
+}
+
 export async function checkSSH(): Promise<void> {
   try {
     // accept-new auto-accepts unknown hosts but rejects changed keys (prevents MITM on key rotation)
