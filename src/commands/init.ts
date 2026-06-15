@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { buildEnvContent } from "../lib/env-wizard.js";
@@ -45,12 +45,6 @@ export async function init(name: string): Promise<void> {
   await runStep("Checking Docker installed", checkDockerInstalled);
   await runStep("Checking Docker running", checkDockerRunning);
 
-  let dbPort!: number;
-  await runStep("Finding a free Postgres port", async () => {
-    dbPort = await findFreePort(5432);
-  });
-  clack.log.info(`Using Postgres host port ${dbPort}`);
-
   await runStep("Checking SSH access to GitHub", checkSSH);
   await runStep("Ensuring pnpm", ensurePnpm);
 
@@ -71,6 +65,8 @@ export async function init(name: string): Promise<void> {
     if (clack.isCancel(overwrite)) abort("Aborted.");
     shouldWriteEnv = overwrite;
   }
+
+  let dbPort = 5432;
 
   if (shouldWriteEnv) {
     const resend = await clack.confirm({
@@ -103,6 +99,13 @@ export async function init(name: string): Promise<void> {
     });
     if (clack.isCancel(githubFeedback)) abort("Aborted.");
 
+    // Find free port immediately before writing .env and starting Docker
+    // to minimise the window between check and use
+    await runStep("Finding a free Postgres port", async () => {
+      dbPort = await findFreePort(5432);
+    });
+    clack.log.info(`Using Postgres host port ${dbPort}`);
+
     const content = buildEnvContent(
       {
         resend: resend,
@@ -116,6 +119,20 @@ export async function init(name: string): Promise<void> {
 
     writeFileSync(envPath, content);
     clack.log.success(".env written");
+  } else {
+    // .env exists and user kept it — parse the port from DATABASE_URL so
+    // Docker starts on the same port the app expects
+    const envContent = readFileSync(envPath, "utf8");
+    const match = envContent.match(/DATABASE_URL=.*localhost:(\d+)/);
+    if (match) {
+      dbPort = Number(match[1]);
+      clack.log.info(`Using Postgres host port ${dbPort} (from existing .env)`);
+    } else {
+      await runStep("Finding a free Postgres port", async () => {
+        dbPort = await findFreePort(5432);
+      });
+      clack.log.info(`Using Postgres host port ${dbPort}`);
+    }
   }
 
   await runStep("Starting Docker services", () =>

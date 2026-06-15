@@ -1,4 +1,4 @@
-import { createServer } from "node:net";
+import { Socket, createServer } from "node:net";
 import { run } from "./exec.js";
 
 export async function checkNode(version = process.version): Promise<void> {
@@ -25,13 +25,25 @@ export async function checkDockerRunning(): Promise<void> {
 }
 
 export async function isPortFree(port: number): Promise<boolean> {
+  // Connect-based check detects Docker-bound ports that bind-based checks miss on macOS
+  const connectable = await new Promise<boolean>((resolve) => {
+    const socket = new Socket();
+    socket.setTimeout(300);
+    socket.on("connect", () => { socket.destroy(); resolve(true); });
+    socket.on("timeout", () => { socket.destroy(); resolve(false); });
+    socket.on("error", (err) => {
+      socket.destroy();
+      resolve((err as NodeJS.ErrnoException).code !== "ECONNREFUSED");
+    });
+    socket.connect(port, "127.0.0.1");
+  });
+  if (connectable) return false;
+
+  // Secondary bind check for non-Docker processes
   return new Promise((resolve) => {
     const server = createServer();
     server.once("error", () => resolve(false));
-    server.once("listening", () => {
-      server.close();
-      resolve(true);
-    });
+    server.once("listening", () => { server.close(); resolve(true); });
     server.listen(port, "127.0.0.1");
   });
 }
