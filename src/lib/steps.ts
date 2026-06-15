@@ -32,9 +32,10 @@ export async function waitForPostgres(
     cwd,
     portEnv,
   ).catch(() => ({ stdout: "" }));
-  if (!portOut.trim()) {
+  const boundPort = portOut.trim();
+  if (!boundPort || boundPort === "invalid IP:0" || boundPort.endsWith(":0")) {
     throw new Error(
-      "Docker Postgres could not bind a host port. " +
+      `Docker Postgres could not bind host port ${port} — it may already be in use. ` +
         "Check: docker compose logs postgres",
     );
   }
@@ -78,8 +79,8 @@ export async function ensureDatabase(
     ],
     cwd,
     { POSTGRES_PORT: String(port) },
-  ).catch(() => {
-    // "already exists" is fine — ignore
+  ).catch((err: unknown) => {
+    if (!String(err).includes("already exists")) throw err;
   });
 }
 
