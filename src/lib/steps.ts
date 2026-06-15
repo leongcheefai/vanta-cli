@@ -35,8 +35,7 @@ export async function waitForPostgres(
   const boundPort = portOut.trim();
   if (!boundPort || boundPort === "invalid IP:0" || boundPort.endsWith(":0")) {
     throw new Error(
-      `Docker Postgres could not bind host port ${port} — it may already be in use. ` +
-        "Check: docker compose logs postgres",
+      `Docker Postgres could not bind host port ${port} — it may already be in use. Check: docker compose logs postgres`,
     );
   }
 

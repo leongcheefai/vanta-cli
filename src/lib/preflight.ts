@@ -29,8 +29,14 @@ export async function isPortFree(port: number): Promise<boolean> {
   const connectable = await new Promise<boolean>((resolve) => {
     const socket = new Socket();
     socket.setTimeout(300);
-    socket.on("connect", () => { socket.destroy(); resolve(true); });
-    socket.on("timeout", () => { socket.destroy(); resolve(false); });
+    socket.on("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve(false);
+    });
     socket.on("error", (err) => {
       socket.destroy();
       resolve((err as NodeJS.ErrnoException).code !== "ECONNREFUSED");
@@ -43,7 +49,10 @@ export async function isPortFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = createServer();
     server.once("error", () => resolve(false));
-    server.once("listening", () => { server.close(); resolve(true); });
+    server.once("listening", () => {
+      server.close();
+      resolve(true);
+    });
     server.listen(port, "127.0.0.1");
   });
 }
