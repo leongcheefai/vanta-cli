@@ -48,7 +48,10 @@ program
     }
   });
 
-const updateCheck = checkForUpdate(pkg.version, "vantatech-cli");
+const isUpdateCommand = process.argv[2] === "update";
+const updateCheck = isUpdateCommand
+  ? Promise.resolve(null)
+  : checkForUpdate(pkg.version, "vantatech-cli");
 
 await program.parseAsync(process.argv);
 

@@ -1,6 +1,6 @@
 {
   "name": "vantatech-cli",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "bin": {
     "vanta": "dist/index.js"
@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "npm run build",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "lint": "biome check .",
