@@ -12,29 +12,30 @@ export async function installDeps(cwd: string): Promise<void> {
   await run("pnpm", ["install"], cwd);
 }
 
-export async function composeUp(cwd: string): Promise<void> {
-  await run("docker", ["compose", "up", "-d"], cwd);
+export async function composeUp(cwd: string, port = 5432): Promise<void> {
+  await run("docker", ["compose", "up", "-d"], cwd, {
+    POSTGRES_PORT: String(port),
+  });
 }
 
 export async function waitForPostgres(
   cwd: string,
+  port = 5432,
   retries = 20,
   delayMs = 1000,
 ): Promise<void> {
-  // Verify Docker actually owns port 5432 on the host (not just that the
-  // container is running — it can run with the port binding silently failed
-  // if a local Postgres process reclaimed 5432 after the kill)
+  const portEnv = { POSTGRES_PORT: String(port) };
+  // Verify Docker actually owns a host port for the container's 5432
   const { stdout: portOut } = await run(
     "docker",
     ["compose", "port", "postgres", "5432"],
     cwd,
+    portEnv,
   ).catch(() => ({ stdout: "" }));
   if (!portOut.trim()) {
     throw new Error(
-      "Docker Postgres could not bind port 5432 — a local Postgres process " +
-        "reclaimed it after the kill (launchd auto-restart). " +
-        "Stop it with: brew services stop postgresql && lsof -ti :5432 | xargs kill -9\n" +
-        "Then re-run: vanta init",
+      "Docker Postgres could not bind a host port. " +
+        "Check: docker compose logs postgres",
     );
   }
 
@@ -44,7 +45,7 @@ export async function waitForPostgres(
         "-h",
         "127.0.0.1",
         "-p",
-        "5432",
+        String(port),
         "-U",
         "postgres",
       ]);
@@ -61,9 +62,8 @@ export async function waitForPostgres(
 export async function ensureDatabase(
   cwd: string,
   dbName = "vanta_base_admin",
+  port = 5432,
 ): Promise<void> {
-  // docker-compose.yml uses POSTGRES_DB: praxor_kit (legacy name) so the
-  // target database must be created explicitly before migrations run
   await run(
     "docker",
     [
@@ -77,6 +77,7 @@ export async function ensureDatabase(
       `CREATE DATABASE "${dbName}";`,
     ],
     cwd,
+    { POSTGRES_PORT: String(port) },
   ).catch(() => {
     // "already exists" is fine — ignore
   });

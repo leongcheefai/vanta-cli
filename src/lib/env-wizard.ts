@@ -8,10 +8,10 @@ export interface IntegrationFlags {
   githubFeedback: boolean;
 }
 
-export function buildEnvContent(flags: IntegrationFlags): string {
+export function buildEnvContent(flags: IntegrationFlags, port = 5432): string {
   const secret = randomBytes(33).toString("base64");
   const lines = [
-    "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/vanta_base_admin",
+    `DATABASE_URL=postgresql://postgres:postgres@localhost:${port}/vanta_base_admin`,
     "NODE_ENV=development",
     "BETTER_AUTH_URL=http://localhost:3001",
     `BETTER_AUTH_SECRET=${secret}`,

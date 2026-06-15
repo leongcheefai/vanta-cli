@@ -86,6 +86,19 @@ describe("buildEnvContent", () => {
     expect(content).toContain("GITHUB_FEEDBACK_REPO=");
   });
 
+  it("uses port 5432 by default", () => {
+    const content = buildEnvContent(NO_INTEGRATIONS);
+    expect(content).toContain("localhost:5432/vanta_base_admin");
+  });
+
+  it("uses a custom port when specified", () => {
+    const content = buildEnvContent(NO_INTEGRATIONS, 5433);
+    expect(content).toContain(
+      "DATABASE_URL=postgresql://postgres:postgres@localhost:5433/vanta_base_admin",
+    );
+    expect(content).not.toContain("localhost:5432");
+  });
+
   it("ends with newline", () => {
     const content = buildEnvContent(NO_INTEGRATIONS);
     expect(content.endsWith("\n")).toBe(true);

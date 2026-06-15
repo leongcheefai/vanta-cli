@@ -1,4 +1,4 @@
-import { createConnection } from "node:net";
+import { createServer } from "node:net";
 import { run } from "./exec.js";
 
 export async function checkNode(version = process.version): Promise<void> {
@@ -24,88 +24,28 @@ export async function checkDockerRunning(): Promise<void> {
   }
 }
 
-export async function checkPort5432Free(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const conn = createConnection({ port: 5432, host: "localhost" });
-    conn.on("connect", () => {
-      conn.destroy();
-      reject(new Error("Port 5432 in use. Stop the conflicting process."));
+export async function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close();
+      resolve(true);
     });
-    conn.on("error", () => {
-      conn.destroy();
-      resolve();
-    });
+    server.listen(port, "127.0.0.1");
   });
 }
 
-export async function getPort5432Pids(): Promise<string[]> {
-  try {
-    const { stdout } = await run("lsof", ["-ti", ":5432"]);
-    return stdout.trim().split("\n").filter(Boolean);
-  } catch {
-    return [];
+export async function findFreePort(
+  startPort = 5432,
+  maxTries = 100,
+): Promise<number> {
+  for (let port = startPort; port < startPort + maxTries; port++) {
+    if (await isPortFree(port)) return port;
   }
-}
-
-export async function killPort5432Pids(pids: string[]): Promise<void> {
-  for (const pid of pids) {
-    await run("kill", ["-9", pid]);
-  }
-}
-
-export async function getBrewPostgresService(): Promise<string | null> {
-  try {
-    const { stdout } = await run("brew", ["services", "list", "--json"]);
-    const services = JSON.parse(stdout) as Array<{
-      name: string;
-      status: string;
-    }>;
-    const svc = services.find(
-      (s) => s.name.startsWith("postgresql") && s.status === "started",
-    );
-    return svc?.name ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export async function stopBrewService(name: string): Promise<void> {
-  await run("brew", ["services", "stop", name]);
-}
-
-export async function getPort5432DockerContainers(): Promise<string[]> {
-  try {
-    const { stdout } = await run("docker", [
-      "ps",
-      "--filter",
-      "publish=5432",
-      "--format",
-      "{{.Names}}",
-    ]);
-    return stdout.trim().split("\n").filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-export async function stopDockerContainers(names: string[]): Promise<void> {
-  for (const name of names) {
-    await run("docker", ["stop", name]);
-  }
-}
-
-export async function waitForPort5432Free(
-  retries = 8,
-  delayMs = 500,
-): Promise<void> {
-  for (let i = 0; i < retries; i++) {
-    await new Promise((r) => setTimeout(r, delayMs));
-    try {
-      await checkPort5432Free();
-      return;
-    } catch {}
-  }
-  throw new Error("Port 5432 still in use after killing process.");
+  throw new Error(
+    `No free port found in range ${startPort}-${startPort + maxTries - 1}.`,
+  );
 }
 
 export async function checkSSH(): Promise<void> {

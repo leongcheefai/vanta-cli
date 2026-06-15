@@ -6,15 +6,9 @@ import {
   checkDockerInstalled,
   checkDockerRunning,
   checkNode,
-  checkPort5432Free,
   checkSSH,
   ensurePnpm,
-  getBrewPostgresService,
-  getPort5432DockerContainers,
-  getPort5432Pids,
-  killPort5432Pids,
-  stopBrewService,
-  waitForPort5432Free,
+  findFreePort,
 } from "../lib/preflight.js";
 import {
   cloneRepo,
@@ -50,49 +44,13 @@ export async function init(name: string): Promise<void> {
   await runStep("Checking Node version", checkNode);
   await runStep("Checking Docker installed", checkDockerInstalled);
   await runStep("Checking Docker running", checkDockerRunning);
-  // Port 5432 — only intervene for local processes; Docker containers are
-  // left alone (docker compose up -d is idempotent and handles them)
-  const portSpinner = clack.spinner();
-  portSpinner.start("Checking port 5432");
-  try {
-    await checkPort5432Free();
-    portSpinner.stop("Checking port 5432");
-  } catch {
-    const [pids, containers, brewSvc] = await Promise.all([
-      getPort5432Pids(),
-      getPort5432DockerContainers(),
-      getBrewPostgresService(),
-    ]);
 
-    if (containers.length) {
-      // Docker already owns 5432 — compose up will reconcile it, no kill needed
-      portSpinner.stop(
-        `Port 5432 in use by Docker (${containers.join(", ")}) — reusing`,
-      );
-    } else {
-      // Local process (brew/system postgres) — must be stopped so Docker can bind
-      portSpinner.stop("Port 5432 in use by local process", 1);
-      const pidLabel = pids.length ? ` (PID: ${pids.join(", ")})` : "";
-      const brewLabel = brewSvc ? `, brew: ${brewSvc}` : "";
-      const kill = await clack.confirm({
-        message: `Port 5432 is in use${pidLabel}${brewLabel}. Stop it so Docker can use the port?`,
-        initialValue: true,
-      });
-      if (clack.isCancel(kill) || !kill)
-        abort("Port 5432 in use. Stop the conflicting process.");
-      // Stop brew service first — kill -9 alone gets restarted by launchd
-      if (brewSvc) await stopBrewService(brewSvc);
-      if (pids.length) await killPort5432Pids(pids);
-      try {
-        await waitForPort5432Free();
-        clack.log.success("Port 5432 is now free");
-      } catch {
-        abort(
-          `Port 5432 still in use. Manually run: brew services stop ${brewSvc ?? "postgresql"} && lsof -ti :5432 | xargs kill -9`,
-        );
-      }
-    }
-  }
+  let dbPort!: number;
+  await runStep("Finding a free Postgres port", async () => {
+    dbPort = await findFreePort(5432);
+  });
+  clack.log.info(`Using Postgres host port ${dbPort}`);
+
   await runStep("Checking SSH access to GitHub", checkSSH);
   await runStep("Ensuring pnpm", ensurePnpm);
 
@@ -145,21 +103,30 @@ export async function init(name: string): Promise<void> {
     });
     if (clack.isCancel(githubFeedback)) abort("Aborted.");
 
-    const content = buildEnvContent({
-      resend: resend,
-      stripe: stripe,
-      googleOAuth: googleOAuth,
-      s3: s3,
-      githubFeedback: githubFeedback,
-    });
+    const content = buildEnvContent(
+      {
+        resend: resend,
+        stripe: stripe,
+        googleOAuth: googleOAuth,
+        s3: s3,
+        githubFeedback: githubFeedback,
+      },
+      dbPort,
+    );
 
     writeFileSync(envPath, content);
     clack.log.success(".env written");
   }
 
-  await runStep("Starting Docker services", () => composeUp(projectDir));
-  await runStep("Waiting for Postgres", () => waitForPostgres(projectDir));
-  await runStep("Creating database", () => ensureDatabase(projectDir));
+  await runStep("Starting Docker services", () =>
+    composeUp(projectDir, dbPort),
+  );
+  await runStep("Waiting for Postgres", () =>
+    waitForPostgres(projectDir, dbPort),
+  );
+  await runStep("Creating database", () =>
+    ensureDatabase(projectDir, "vanta_base_admin", dbPort),
+  );
   await runStep("Running migrations", () => runMigrations(projectDir));
 
   const createAdmin = await clack.confirm({

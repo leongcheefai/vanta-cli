@@ -1,7 +1,7 @@
 import { Command } from "commander";
+import pkg from "../package.json" with { type: "json" };
 import { doctor } from "./commands/doctor.js";
 import { init } from "./commands/init.js";
-import pkg from "../package.json" with { type: "json" };
 
 const program = new Command();
 

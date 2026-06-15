@@ -14,6 +14,7 @@ import {
   installDeps,
   runMigrations,
   seedAdmin,
+  waitForPostgres,
 } from "../src/lib/steps.js";
 
 beforeEach(() => {
@@ -59,13 +60,49 @@ describe("installDeps", () => {
 });
 
 describe("composeUp", () => {
-  it("runs docker compose up -d in given cwd", async () => {
+  it("runs docker compose up -d with default port env", async () => {
     vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
     await composeUp("/some/project");
     expect(run).toHaveBeenCalledWith(
       "docker",
       ["compose", "up", "-d"],
       "/some/project",
+      { POSTGRES_PORT: "5432" },
+    );
+  });
+
+  it("passes custom port as POSTGRES_PORT env", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
+    await composeUp("/some/project", 5433);
+    expect(run).toHaveBeenCalledWith(
+      "docker",
+      ["compose", "up", "-d"],
+      "/some/project",
+      { POSTGRES_PORT: "5433" },
+    );
+  });
+});
+
+describe("waitForPostgres", () => {
+  it("uses the given port in pg_isready", async () => {
+    vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: "0.0.0.0:5433", stderr: "" }) // docker compose port
+      .mockResolvedValueOnce({ stdout: "", stderr: "" }); // pg_isready
+    await waitForPostgres("/some/project", 5433);
+    expect(run).toHaveBeenCalledWith("pg_isready", [
+      "-h",
+      "127.0.0.1",
+      "-p",
+      "5433",
+      "-U",
+      "postgres",
+    ]);
+  });
+
+  it("throws when docker compose port returns empty (no host binding)", async () => {
+    vi.mocked(run).mockResolvedValueOnce({ stdout: "", stderr: "" });
+    await expect(waitForPostgres("/some/project", 5433)).rejects.toThrow(
+      "Docker Postgres could not bind a host port",
     );
   });
 });

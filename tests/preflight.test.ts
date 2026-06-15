@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
-import { createConnection } from "node:net";
+import { createServer } from "node:net";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("net", () => ({ createConnection: vi.fn() }));
+vi.mock("net", () => ({ createServer: vi.fn() }));
 vi.mock("../src/lib/exec.js", () => ({
   run: vi.fn(),
   runInherit: vi.fn(),
@@ -16,9 +16,10 @@ import {
   checkDockerInstalled,
   checkDockerRunning,
   checkNode,
-  checkPort5432Free,
   checkSSH,
   ensurePnpm,
+  findFreePort,
+  isPortFree,
 } from "../src/lib/preflight.js";
 
 describe("checkNode", () => {
@@ -58,24 +59,71 @@ describe("checkDockerRunning", () => {
   });
 });
 
-describe("checkPort5432Free", () => {
-  it("resolves when port is free (connection refused)", async () => {
-    const socket = Object.assign(new EventEmitter(), { destroy: vi.fn() });
-    vi.mocked(createConnection).mockReturnValue(
-      socket as unknown as ReturnType<typeof createConnection>,
-    );
-    const promise = checkPort5432Free();
-    socket.emit("error", new Error("ECONNREFUSED"));
-    await expect(promise).resolves.toBeUndefined();
+function makeServer(events: { listening?: boolean; error?: boolean }) {
+  const srv = Object.assign(new EventEmitter(), {
+    listen: vi.fn().mockImplementation(function (
+      this: EventEmitter,
+      _port: number,
+      _host: string,
+    ) {
+      setImmediate(() => {
+        if (events.error) this.emit("error", new Error("EADDRINUSE"));
+        else this.emit("listening");
+      });
+    }),
+    close: vi.fn(),
   });
-  it("throws when port is in use (connection succeeds)", async () => {
-    const socket = Object.assign(new EventEmitter(), { destroy: vi.fn() });
-    vi.mocked(createConnection).mockReturnValue(
-      socket as unknown as ReturnType<typeof createConnection>,
+  return srv;
+}
+
+describe("isPortFree", () => {
+  it("returns true when port is free (bind succeeds)", async () => {
+    vi.mocked(createServer).mockReturnValue(
+      makeServer({ listening: true }) as unknown as ReturnType<
+        typeof createServer
+      >,
     );
-    const promise = checkPort5432Free();
-    socket.emit("connect");
-    await expect(promise).rejects.toThrow("Port 5432 in use");
+    await expect(isPortFree(5432)).resolves.toBe(true);
+  });
+  it("returns false when port is in use (bind fails)", async () => {
+    vi.mocked(createServer).mockReturnValue(
+      makeServer({ error: true }) as unknown as ReturnType<typeof createServer>,
+    );
+    await expect(isPortFree(5433)).resolves.toBe(false);
+  });
+});
+
+describe("findFreePort", () => {
+  it("returns startPort when it is free", async () => {
+    vi.mocked(createServer).mockReturnValue(
+      makeServer({ listening: true }) as unknown as ReturnType<
+        typeof createServer
+      >,
+    );
+    await expect(findFreePort(5432)).resolves.toBe(5432);
+  });
+  it("scans upward and returns the first free port", async () => {
+    // 5432 busy, 5433 busy, 5434 free
+    let callCount = 0;
+    vi.mocked(createServer).mockImplementation(() => {
+      const busy = callCount < 2;
+      callCount++;
+      return makeServer(
+        busy ? { error: true } : { listening: true },
+      ) as unknown as ReturnType<typeof createServer>;
+    });
+    await expect(findFreePort(5432)).resolves.toBe(5434);
+  });
+  it("throws when no free port found in range", async () => {
+    vi.mocked(createServer).mockImplementation(
+      () =>
+        makeServer({ error: true }) as unknown as ReturnType<
+          typeof createServer
+        >,
+    );
+    await expect(findFreePort(5432, 3)).rejects.toThrow(
+      "No free port found in range 5432-5434",
+    );
   });
 });
 

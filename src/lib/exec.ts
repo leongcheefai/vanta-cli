@@ -4,8 +4,12 @@ export async function run(
   cmd: string,
   args: string[],
   cwd?: string,
+  env?: Record<string, string>,
 ): Promise<{ stdout: string; stderr: string }> {
-  const result = await execa(cmd, args, { cwd });
+  const result = await execa(cmd, args, {
+    cwd,
+    env: env ? { ...process.env, ...env } : undefined,
+  });
   return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
