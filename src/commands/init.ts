@@ -74,7 +74,7 @@ export async function init(name: string): Promise<void> {
 
   let dbPort = 5432;
   let shouldDeployVercel = false;
-  let betterAuthSecret = "";
+  let apiUrl = "";
 
   if (shouldWriteEnv) {
     const resend = await clack.confirm({
@@ -112,6 +112,18 @@ export async function init(name: string): Promise<void> {
       initialValue: false,
     });
     if (clack.isCancel(deployVercel)) abort("Aborted.");
+
+    let apiUrl = "";
+    if (deployVercel) {
+      const apiUrlInput = await clack.text({
+        message: "API URL for production (VITE_API_URL):",
+        placeholder: "https://api.yourdomain.com",
+        validate: (v) =>
+          v.startsWith("http") ? undefined : "Must be a valid URL",
+      });
+      if (clack.isCancel(apiUrlInput)) abort("Aborted.");
+      apiUrl = apiUrlInput as string;
+    }
 
     if (deployVercel) {
       let vercelReady = false;
@@ -182,9 +194,6 @@ export async function init(name: string): Promise<void> {
       },
       dbPort,
     );
-
-    const secretMatch = content.match(/BETTER_AUTH_SECRET=(.+)/);
-    betterAuthSecret = secretMatch?.[1]?.trim() ?? "";
 
     writeFileSync(envPath, content);
     clack.log.success(".env written");
@@ -269,19 +278,13 @@ export async function init(name: string): Promise<void> {
       clack.log.info(`Run manually: cd ${name} && vercel --prod`);
     }
 
-    if (vercelUrl) {
-      for (const [key, value] of [
-        ["BETTER_AUTH_SECRET", betterAuthSecret],
-        ["BETTER_AUTH_URL", vercelUrl],
-        ["VITE_API_URL", vercelUrl],
-      ] as [string, string][]) {
-        try {
-          await pushVercelEnv(key, value, projectDir);
-        } catch (err: unknown) {
-          clack.log.warn(
-            `Failed to push ${key} to Vercel: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
+    if (vercelUrl && apiUrl) {
+      try {
+        await pushVercelEnv("VITE_API_URL", apiUrl, projectDir);
+      } catch (err: unknown) {
+        clack.log.warn(
+          `Failed to push VITE_API_URL to Vercel: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       clack.log.info(
         "Env vars pushed. Run `vercel --prod` once more to pick them up.",
