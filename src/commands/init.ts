@@ -137,10 +137,27 @@ export async function init(name: string): Promise<void> {
         try {
           await checkVercelLoggedIn();
         } catch {
-          clack.log.warn(
-            "Not logged into Vercel. Run `vercel login` then `vercel --prod`.",
-          );
-          vercelReady = false;
+          clack.log.info("Run `vercel login` in another terminal, then come back.");
+          const ready = await clack.confirm({
+            message: "Logged into Vercel?",
+            initialValue: false,
+          });
+          if (clack.isCancel(ready)) abort("Aborted.");
+          if (ready) {
+            try {
+              await checkVercelLoggedIn();
+            } catch {
+              clack.log.warn(
+                "Still not logged in. Skipping Vercel deploy. Run `vercel --prod` manually later.",
+              );
+              vercelReady = false;
+            }
+          } else {
+            clack.log.warn(
+              "Skipping Vercel deploy. Run `vercel --prod` manually later.",
+            );
+            vercelReady = false;
+          }
         }
       }
 
