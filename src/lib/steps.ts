@@ -112,6 +112,38 @@ export async function pushVercelEnv(
   await run("vercel", ["env", "add", key, "production"], cwd, undefined, value);
 }
 
+export async function installRailwayCli(): Promise<void> {
+  await run("pnpm", ["add", "-g", "@railway/cli"]);
+}
+
+export async function railwayLogin(): Promise<void> {
+  await runInherit("railway", ["login"]);
+}
+
+export async function railwayDeploy(
+  name: string,
+  cwd: string,
+): Promise<string> {
+  await run("railway", ["init", "--name", name], cwd);
+  await run("railway", ["up", "--detach"], cwd);
+  const { stdout } = await run(
+    "railway",
+    ["domain", "--json", "--port", "3000"],
+    cwd,
+  );
+  let domain: string | undefined;
+  try {
+    const parsed = JSON.parse(stdout);
+    domain = parsed.domain ?? parsed.url;
+  } catch {
+    // fall back to scanning for https:// line if output is not JSON
+    const lines = stdout.trim().split("\n");
+    domain = lines.find((l) => l.startsWith("https://"));
+  }
+  if (!domain) throw new Error("Could not extract Railway domain from output.");
+  return domain.startsWith("http") ? domain : `https://${domain}`;
+}
+
 export async function seedAdmin(
   cwd: string,
   email: string,

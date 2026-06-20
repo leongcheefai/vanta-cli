@@ -107,6 +107,23 @@ export async function checkVercelLoggedIn(): Promise<void> {
   }
 }
 
+export async function checkRailwayInstalled(): Promise<void> {
+  try {
+    await run("which", ["railway"]);
+  } catch {
+    throw new Error("Railway CLI not found.");
+  }
+}
+
+export async function checkRailwayLoggedIn(): Promise<void> {
+  try {
+    const { stdout } = await run("railway", ["whoami"]);
+    if (!stdout.trim()) throw new Error("not logged in");
+  } catch {
+    throw new Error("Not logged into Railway. Run: railway login");
+  }
+}
+
 export async function ensurePnpm(): Promise<void> {
   try {
     await run("pnpm", ["--version"]);

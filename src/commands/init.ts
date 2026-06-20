@@ -6,6 +6,8 @@ import {
   checkDockerInstalled,
   checkDockerRunning,
   checkNode,
+  checkRailwayInstalled,
+  checkRailwayLoggedIn,
   checkSSH,
   checkVercelInstalled,
   checkVercelLoggedIn,
@@ -17,8 +19,11 @@ import {
   composeUp,
   ensureDatabase,
   installDeps,
+  installRailwayCli,
   installVercelCli,
   pushVercelEnv,
+  railwayDeploy,
+  railwayLogin,
   runMigrations,
   seedAdmin,
   vercelDeploy,
@@ -74,6 +79,7 @@ export async function init(name: string): Promise<void> {
 
   let dbPort = 5432;
   let shouldDeployVercel = false;
+  let shouldDeployRailway = false;
   let apiUrl = "";
 
   if (shouldWriteEnv) {
@@ -107,13 +113,73 @@ export async function init(name: string): Promise<void> {
     });
     if (clack.isCancel(githubFeedback)) abort("Aborted.");
 
+    const deployRailway = await clack.confirm({
+      message: "Deploy backend to Railway?",
+      initialValue: false,
+    });
+    if (clack.isCancel(deployRailway)) abort("Aborted.");
+
+    if (deployRailway) {
+      let railwayReady = false;
+      try {
+        await checkRailwayInstalled();
+        railwayReady = true;
+      } catch {
+        const installIt = await clack.confirm({
+          message: "Railway CLI not found. Install via pnpm?",
+          initialValue: true,
+        });
+        if (clack.isCancel(installIt)) abort("Aborted.");
+        if (installIt) {
+          await runStep("Installing Railway CLI", installRailwayCli);
+          railwayReady = true;
+        } else {
+          clack.log.warn(
+            "Skipping Railway deploy. Run `railway up` manually later.",
+          );
+        }
+      }
+
+      if (railwayReady) {
+        try {
+          await checkRailwayLoggedIn();
+        } catch {
+          const doLogin = await clack.confirm({
+            message: "Not logged into Railway. Login now?",
+            initialValue: true,
+          });
+          if (clack.isCancel(doLogin)) abort("Aborted.");
+          if (doLogin) {
+            await railwayLogin();
+            try {
+              await checkRailwayLoggedIn();
+            } catch {
+              clack.log.warn(
+                "Still not logged in. Skipping Railway deploy. Run `railway up` manually later.",
+              );
+              railwayReady = false;
+            }
+          } else {
+            clack.log.warn(
+              "Skipping Railway deploy. Run `railway up` manually later.",
+            );
+            railwayReady = false;
+          }
+        }
+      }
+
+      shouldDeployRailway = railwayReady;
+    }
+
     const deployVercel = await clack.confirm({
       message: "Deploy to Vercel?",
       initialValue: false,
     });
     if (clack.isCancel(deployVercel)) abort("Aborted.");
 
-    if (deployVercel) {
+    // Only ask for the API URL manually when Railway is not deploying the backend;
+    // if Railway succeeds it will auto-feed VITE_API_URL after deploy.
+    if (deployVercel && !shouldDeployRailway) {
       const apiUrlInput = await clack.text({
         message: "API URL for production (VITE_API_URL):",
         placeholder: "Leave blank to set later in Vercel dashboard",
@@ -261,6 +327,26 @@ export async function init(name: string): Promise<void> {
     );
   }
 
+  let railwayUrl: string | undefined;
+
+  if (shouldDeployRailway) {
+    const apiDir = join(projectDir, "apps", "api");
+    const spinner = clack.spinner();
+    spinner.start("Deploying backend to Railway");
+    try {
+      railwayUrl = await railwayDeploy(name, apiDir);
+      spinner.stop("Deploying backend to Railway");
+      clack.log.success(`Backend: ${railwayUrl}`);
+      apiUrl = railwayUrl;
+    } catch (err: unknown) {
+      spinner.stop("Deploying backend to Railway", 1);
+      clack.log.warn(
+        `Railway deploy failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      clack.log.info(`Run manually: cd ${name}/apps/api && railway up`);
+    }
+  }
+
   let vercelUrl: string | null = null;
 
   if (shouldDeployVercel) {
@@ -292,6 +378,7 @@ export async function init(name: string): Promise<void> {
   }
 
   const outroLines = [`Local:  cd ${name} && pnpm dev`];
+  if (railwayUrl) outroLines.push(`Railway: ${railwayUrl}`);
   if (vercelUrl) outroLines.push(`Vercel: ${vercelUrl}`);
   clack.outro(outroLines.join("\n"));
 }

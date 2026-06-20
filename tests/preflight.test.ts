@@ -187,6 +187,8 @@ describe("ensurePnpm", () => {
 });
 
 import {
+  checkRailwayInstalled,
+  checkRailwayLoggedIn,
   checkVercelInstalled,
   checkVercelLoggedIn,
 } from "../src/lib/preflight.js";
@@ -222,6 +224,41 @@ describe("checkVercelLoggedIn", () => {
     vi.mocked(run).mockRejectedValue(new Error("command failed"));
     await expect(checkVercelLoggedIn()).rejects.toThrow(
       "Not logged into Vercel",
+    );
+  });
+});
+
+describe("checkRailwayInstalled", () => {
+  it("resolves when railway is on PATH", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: "/usr/local/bin/railway",
+      stderr: "",
+    });
+    await expect(checkRailwayInstalled()).resolves.toBeUndefined();
+  });
+  it("throws when railway is not found", async () => {
+    vi.mocked(run).mockRejectedValue(new Error("not found"));
+    await expect(checkRailwayInstalled()).rejects.toThrow(
+      "Railway CLI not found",
+    );
+  });
+});
+
+describe("checkRailwayLoggedIn", () => {
+  it("resolves when whoami returns a username", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "myuser", stderr: "" });
+    await expect(checkRailwayLoggedIn()).resolves.toBeUndefined();
+  });
+  it("throws when whoami returns empty stdout", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
+    await expect(checkRailwayLoggedIn()).rejects.toThrow(
+      "Not logged into Railway",
+    );
+  });
+  it("throws when whoami command fails", async () => {
+    vi.mocked(run).mockRejectedValue(new Error("command failed"));
+    await expect(checkRailwayLoggedIn()).rejects.toThrow(
+      "Not logged into Railway",
     );
   });
 });
