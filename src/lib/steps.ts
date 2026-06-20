@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { run } from "./exec.js";
+import { run, runInherit } from "./exec.js";
 
 const REPO_URL = "git@github.com:leongcheefai/vanta-base-admin.git";
 
@@ -89,6 +89,10 @@ export async function runMigrations(cwd: string): Promise<void> {
 
 export async function installVercelCli(): Promise<void> {
   await run("pnpm", ["add", "-g", "vercel"]);
+}
+
+export async function vercelLogin(): Promise<void> {
+  await runInherit("vercel", ["login"]);
 }
 
 export async function vercelDeploy(cwd: string): Promise<string> {

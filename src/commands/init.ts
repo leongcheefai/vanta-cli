@@ -22,6 +22,7 @@ import {
   runMigrations,
   seedAdmin,
   vercelDeploy,
+  vercelLogin,
   waitForPostgres,
 } from "../lib/steps.js";
 
@@ -137,13 +138,13 @@ export async function init(name: string): Promise<void> {
         try {
           await checkVercelLoggedIn();
         } catch {
-          clack.log.info("Run `vercel login` in another terminal, then come back.");
-          const ready = await clack.confirm({
-            message: "Logged into Vercel?",
-            initialValue: false,
+          const doLogin = await clack.confirm({
+            message: "Not logged into Vercel. Login now?",
+            initialValue: true,
           });
-          if (clack.isCancel(ready)) abort("Aborted.");
-          if (ready) {
+          if (clack.isCancel(doLogin)) abort("Aborted.");
+          if (doLogin) {
+            await vercelLogin();
             try {
               await checkVercelLoggedIn();
             } catch {
