@@ -128,7 +128,6 @@ export async function pushRailwayEnvVars(cwd: string): Promise<void> {
       "set",
       "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
       "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
-      "--skip-deploys",
     ],
     cwd,
   );
@@ -139,8 +138,9 @@ export async function railwayDeploy(
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
-  await pushRailwayEnvVars(cwd);
   await runInherit("railway", ["up", "--detach"], cwd);
+  // Set env vars after up so the service exists; triggers a redeploy with correct vars.
+  await pushRailwayEnvVars(cwd);
   const { stdout } = await run(
     "railway",
     ["domain", "--json", "--port", "3000"],

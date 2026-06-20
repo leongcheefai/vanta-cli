@@ -187,7 +187,7 @@ describe("installRailwayCli", () => {
 });
 
 describe("pushRailwayEnvVars", () => {
-  it("sets DATABASE_URL and BETTER_AUTH_SECRET with --skip-deploys", async () => {
+  it("sets DATABASE_URL and BETTER_AUTH_SECRET", async () => {
     vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
     await pushRailwayEnvVars("/some/project");
     expect(run).toHaveBeenCalledWith(
@@ -197,7 +197,6 @@ describe("pushRailwayEnvVars", () => {
         "set",
         expect.stringMatching(/^DATABASE_URL=postgresql:\/\//),
         expect.stringMatching(/^BETTER_AUTH_SECRET=.{32,}/),
-        "--skip-deploys",
       ],
       "/some/project",
     );
@@ -205,7 +204,7 @@ describe("pushRailwayEnvVars", () => {
 });
 
 describe("railwayDeploy", () => {
-  it("runs init (inherit) → set vars → up (inherit) → domain in sequence and returns https URL", async () => {
+  it("runs init (inherit) → up (inherit) → set vars → domain in sequence and returns https URL", async () => {
     vi.mocked(runInherit)
       .mockResolvedValueOnce() // railway init
       .mockResolvedValueOnce(); // railway up
