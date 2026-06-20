@@ -117,9 +117,9 @@ export async function init(name: string): Promise<void> {
     if (deployVercel) {
       const apiUrlInput = await clack.text({
         message: "API URL for production (VITE_API_URL):",
-        placeholder: "https://api.yourdomain.com",
+        placeholder: "Leave blank to set later in Vercel dashboard",
         validate: (v) =>
-          v.startsWith("http") ? undefined : "Must be a valid URL",
+          v === "" || v.startsWith("http") ? undefined : "Must be a valid URL",
       });
       if (clack.isCancel(apiUrlInput)) abort("Aborted.");
       apiUrl = apiUrlInput as string;
