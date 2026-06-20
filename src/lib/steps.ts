@@ -125,7 +125,7 @@ export async function railwayDeploy(
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
-  await run("railway", ["up", "--detach"], cwd);
+  await runInherit("railway", ["up", "--detach"], cwd);
   const { stdout } = await run(
     "railway",
     ["domain", "--json", "--port", "3000"],

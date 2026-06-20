@@ -331,15 +331,12 @@ export async function init(name: string): Promise<void> {
 
   if (shouldDeployRailway) {
     const apiDir = join(projectDir, "apps", "api");
-    const spinner = clack.spinner();
-    spinner.start("Deploying backend to Railway");
+    clack.log.info("Deploying backend to Railway...");
     try {
       railwayUrl = await railwayDeploy(name, apiDir);
-      spinner.stop("Deploying backend to Railway");
       clack.log.success(`Backend: ${railwayUrl}`);
       apiUrl = railwayUrl;
     } catch (err: unknown) {
-      spinner.stop("Deploying backend to Railway", 1);
       clack.log.warn(
         `Railway deploy failed: ${err instanceof Error ? err.message : String(err)}`,
       );
