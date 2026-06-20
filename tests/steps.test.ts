@@ -7,7 +7,7 @@ vi.mock("../src/lib/exec.js", () => ({
 }));
 
 import { existsSync } from "node:fs";
-import { run } from "../src/lib/exec.js";
+import { run, runInherit } from "../src/lib/exec.js";
 import {
   cloneRepo,
   composeUp,
@@ -186,29 +186,28 @@ describe("installRailwayCli", () => {
 });
 
 describe("railwayDeploy", () => {
-  it("runs init → up → domain in sequence and returns https URL", async () => {
+  it("runs init (inherit) → up → domain in sequence and returns https URL", async () => {
+    vi.mocked(runInherit).mockResolvedValue(); // railway init (interactive)
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // railway init
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // railway up
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "my-api.railway.app" }),
         stderr: "",
       }); // railway domain
     const url = await railwayDeploy("my-project", "/some/project/apps/api");
-    expect(run).toHaveBeenNthCalledWith(
-      1,
+    expect(runInherit).toHaveBeenCalledWith(
       "railway",
       ["init", "--name", "my-project"],
       "/some/project/apps/api",
     );
     expect(run).toHaveBeenNthCalledWith(
-      2,
+      1,
       "railway",
       ["up", "--detach"],
       "/some/project/apps/api",
     );
     expect(run).toHaveBeenNthCalledWith(
-      3,
+      2,
       "railway",
       ["domain", "--json", "--port", "3000"],
       "/some/project/apps/api",
@@ -217,8 +216,8 @@ describe("railwayDeploy", () => {
   });
 
   it("prepends https:// when domain has no scheme", async () => {
+    vi.mocked(runInherit).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "my-api.railway.app" }),
@@ -230,8 +229,8 @@ describe("railwayDeploy", () => {
   });
 
   it("returns URL as-is when domain already has https scheme", async () => {
+    vi.mocked(runInherit).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "https://my-api.railway.app" }),
@@ -243,8 +242,8 @@ describe("railwayDeploy", () => {
   });
 
   it("falls back to https:// line scan when output is not JSON", async () => {
+    vi.mocked(runInherit).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({
         stdout: "Generating domain...\nhttps://my-api.railway.app",
@@ -256,8 +255,8 @@ describe("railwayDeploy", () => {
   });
 
   it("throws when domain cannot be extracted", async () => {
+    vi.mocked(runInherit).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({ stdout: "{}", stderr: "" });
     await expect(
