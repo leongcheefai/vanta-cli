@@ -120,9 +120,10 @@ export async function railwayLogin(): Promise<void> {
   await runInherit("railway", ["login"]);
 }
 
-const RAILWAY_SERVICE = "api";
-
-export async function pushRailwayEnvVars(cwd: string): Promise<void> {
+export async function pushRailwayEnvVars(
+  cwd: string,
+  service: string,
+): Promise<void> {
   await run(
     "railway",
     [
@@ -131,10 +132,25 @@ export async function pushRailwayEnvVars(cwd: string): Promise<void> {
       "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
       "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
       "--service",
-      RAILWAY_SERVICE,
+      service,
     ],
     cwd,
   );
+}
+
+export async function getRailwayServiceName(cwd: string): Promise<string> {
+  const { stdout } = await run("railway", ["service", "list", "--json"], cwd);
+  let list: Array<{ name: string }>;
+  try {
+    const parsed = JSON.parse(stdout);
+    list = Array.isArray(parsed)
+      ? parsed
+      : (parsed.nodes ?? parsed.services ?? []);
+  } catch {
+    throw new Error("Could not parse Railway service list output.");
+  }
+  if (!list.length) throw new Error("No Railway services found in project.");
+  return list[0].name;
 }
 
 export async function railwayDeploy(
@@ -142,13 +158,14 @@ export async function railwayDeploy(
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
-  // Name the service explicitly so subsequent commands can reference it without
-  // relying on local link state (which --detach may not persist).
-  await runInherit("railway", ["up", "--service", RAILWAY_SERVICE, "--detach"], cwd);
-  await pushRailwayEnvVars(cwd);
+  // Let Railway create the service naturally; --service on a non-existent
+  // service name fails. Discover the created service name afterward.
+  await runInherit("railway", ["up", "--detach"], cwd);
+  const service = await getRailwayServiceName(cwd);
+  await pushRailwayEnvVars(cwd, service);
   const { stdout } = await run(
     "railway",
-    ["domain", "--json", "--port", "3000", "--service", RAILWAY_SERVICE],
+    ["domain", "--json", "--port", "3000", "--service", service],
     cwd,
   );
   let domain: string | undefined;
