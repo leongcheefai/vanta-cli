@@ -120,17 +120,17 @@ export async function railwayLogin(): Promise<void> {
   await runInherit("railway", ["login"]);
 }
 
-export async function pushRailwayEnvVars(cwd: string): Promise<void> {
-  await run(
-    "railway",
-    [
-      "variable",
-      "set",
-      "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
-      "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
-    ],
-    cwd,
+export async function pushRailwayEnvVars(
+  cwd: string,
+  serviceName?: string,
+): Promise<void> {
+  const args = ["variable", "set"];
+  if (serviceName) args.push("--service", serviceName);
+  args.push(
+    "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
+    "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
   );
+  await run("railway", args, cwd);
 }
 
 export async function railwayDeploy(
@@ -138,12 +138,14 @@ export async function railwayDeploy(
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
-  // Run without --detach: Railway saves the service link to local config
-  // during the upload phase. The first deploy may fail (app needs DB env
-  // vars) but we tolerate that — variable set runs next and triggers a
-  // redeploy with correct vars. 5-min timeout handles runaway log streams.
+  // railway up creates the service on Railway's platform (may crash on first
+  // boot because env vars are missing — tolerated). The service is NOT linked
+  // locally after a failed deploy, so we cannot rely on the local config link.
   await runInheritTolerant("railway", ["up"], cwd, 300_000);
-  await pushRailwayEnvVars(cwd);
+  // Use --service <name> to target the service by name without requiring a
+  // local link. Railway auto-names services after the project/directory name.
+  // Setting vars triggers Railway to redeploy with the correct env.
+  await pushRailwayEnvVars(cwd, name);
   const { stdout } = await run(
     "railway",
     ["domain", "--json", "--port", "3000"],
