@@ -330,17 +330,18 @@ export async function init(name: string): Promise<void> {
   let railwayUrl: string | undefined;
 
   if (shouldDeployRailway) {
-    const apiDir = join(projectDir, "apps", "api");
     clack.log.info("Deploying backend to Railway...");
     try {
-      railwayUrl = await railwayDeploy(name, apiDir);
+      // Deploy from monorepo root so Nixpacks picks up pnpm-lock.yaml
+      // and resolves workspace:* dependencies correctly.
+      railwayUrl = await railwayDeploy(name, projectDir);
       clack.log.success(`Backend: ${railwayUrl}`);
       apiUrl = railwayUrl;
     } catch (err: unknown) {
       clack.log.warn(
         `Railway deploy failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-      clack.log.info(`Run manually: cd ${name}/apps/api && railway up`);
+      clack.log.info(`Run manually: cd ${name} && railway up`);
     }
   }
 
