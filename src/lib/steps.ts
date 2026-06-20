@@ -138,12 +138,11 @@ export async function railwayDeploy(
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
-  // railway up creates the service on Railway's platform (may crash on first
-  // boot because env vars are missing — tolerated). The service is NOT linked
-  // locally after a failed deploy, so we cannot rely on the local config link.
-  await runInheritTolerant("railway", ["up"], cwd, 300_000);
-  // Use --service <name> to target the service by name without requiring a
-  // local link. Railway auto-names services after the project/directory name.
+  // --detach: exits after upload without streaming build/deploy logs.
+  // Local service link is not needed — all subsequent commands use --service <name>.
+  await run("railway", ["up", "--detach"], cwd);
+  // Set placeholder vars after upload. Railway auto-names services after the
+  // project name, so --service <name> targets it without a local link.
   // Setting vars triggers Railway to redeploy with the correct env.
   await pushRailwayEnvVars(cwd, name);
   const { stdout } = await run(
