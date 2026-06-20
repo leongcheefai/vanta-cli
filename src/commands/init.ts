@@ -336,6 +336,9 @@ export async function init(name: string): Promise<void> {
       // and resolves workspace:* dependencies correctly.
       railwayUrl = await railwayDeploy(name, projectDir);
       clack.log.success(`Backend: ${railwayUrl}`);
+      clack.log.warn(
+        "Placeholder env vars were set. Update DATABASE_URL and BETTER_AUTH_SECRET with real values in Railway dashboard → Variables tab.",
+      );
       apiUrl = railwayUrl;
     } catch (err: unknown) {
       clack.log.warn(

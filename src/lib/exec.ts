@@ -23,9 +23,9 @@ export async function runInherit(
   await execa(cmd, args, { cwd, stdio: "inherit" });
 }
 
-// Like runInherit but never throws. Use when the process may exit non-zero
-// (e.g. first railway deploy before env vars are set) but side effects
-// (service creation, local link update) still happen during the run.
+// Like runInherit but never throws and silences stdout/stderr.
+// stdin stays inherited so Railway can show interactive prompts if needed.
+// stdout/stderr are piped (discarded) to hide expected noise like "Deploy crashed".
 export async function runInheritTolerant(
   cmd: string,
   args: string[],
@@ -33,7 +33,13 @@ export async function runInheritTolerant(
   timeoutMs = 300_000,
 ): Promise<void> {
   try {
-    await execa(cmd, args, { cwd, stdio: "inherit", timeout: timeoutMs });
+    await execa(cmd, args, {
+      cwd,
+      stdin: "inherit",
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: timeoutMs,
+    });
   } catch {
     // Swallow: deployment failure, timeout kill, or non-zero exit are all OK here.
   }
