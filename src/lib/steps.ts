@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { run, runInherit, runInheritTolerant } from "./exec.js";
+import { run, runInherit } from "./exec.js";
 
 const REPO_URL = "git@github.com:leongcheefai/vanta-base-admin.git";
 
@@ -120,34 +120,35 @@ export async function railwayLogin(): Promise<void> {
   await runInherit("railway", ["login"]);
 }
 
-export async function pushRailwayEnvVars(
-  cwd: string,
-  serviceName?: string,
-): Promise<void> {
-  const args = ["variable", "set"];
-  if (serviceName) args.push("--service", serviceName);
-  args.push(
-    "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
-    "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
-  );
-  await run("railway", args, cwd);
-}
+// Placeholder env vars so the deployed NestJS app passes zod validation at
+// startup. The user must replace these with real values in the Railway
+// dashboard (Variables tab) before the backend is usable.
+const RAILWAY_PLACEHOLDER_VARS = [
+  "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
+  "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
+];
 
 export async function railwayDeploy(
   name: string,
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
-  // No --detach: wait for the first deploy to run (and crash — env vars missing).
-  // This ensures Railway has a committed snapshot before variable set triggers
-  // a redeploy. Output is piped/hidden in runInheritTolerant. Crash is tolerated.
-  await runInheritTolerant("railway", ["up"], cwd, 300_000);
-  // --service <name> targets the service by name without needing a local link.
-  // Setting vars triggers Railway to redeploy with the correct env.
-  await pushRailwayEnvVars(cwd, name);
+  // Create the service WITH env vars BEFORE deploying any code. railway add
+  // creates the service and sets its variables in one shot, so the first
+  // deploy boots healthy — no crash, and no "Cannot redeploy without a
+  // snapshot" error from setting variables on a service that has never
+  // successfully deployed.
+  const addArgs = ["add", "--service", name];
+  for (const v of RAILWAY_PLACEHOLDER_VARS) addArgs.push("--variables", v);
+  await run("railway", addArgs, cwd);
+  // Fresh deploy into the service that already has its vars. --detach uploads
+  // and triggers the deploy without streaming build/deploy logs. This is a
+  // brand-new deployment (creates a snapshot), not a redeploy, so --detach is
+  // safe here.
+  await run("railway", ["up", "--detach", "--service", name], cwd);
   const { stdout } = await run(
     "railway",
-    ["domain", "--json", "--port", "3000"],
+    ["domain", "--service", name, "--json", "--port", "3000"],
     cwd,
   );
   let domain: string | undefined;

@@ -22,25 +22,3 @@ export async function runInherit(
 ): Promise<void> {
   await execa(cmd, args, { cwd, stdio: "inherit" });
 }
-
-// Like runInherit but never throws and silences stdout/stderr.
-// stdin stays inherited so Railway can show interactive prompts if needed.
-// stdout/stderr are piped (discarded) to hide expected noise like "Deploy crashed".
-export async function runInheritTolerant(
-  cmd: string,
-  args: string[],
-  cwd?: string,
-  timeoutMs = 300_000,
-): Promise<void> {
-  try {
-    await execa(cmd, args, {
-      cwd,
-      stdin: "inherit",
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: timeoutMs,
-    });
-  } catch {
-    // Swallow: deployment failure, timeout kill, or non-zero exit are all OK here.
-  }
-}
