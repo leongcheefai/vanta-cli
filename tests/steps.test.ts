@@ -222,10 +222,10 @@ describe("pushRailwayEnvVars", () => {
 });
 
 describe("railwayDeploy", () => {
-  it("runs init → up --detach → set vars with --service → domain and returns https URL", async () => {
+  it("runs init → up (tolerant, silent) → set vars with --service → domain and returns https URL", async () => {
     vi.mocked(runInherit).mockResolvedValue(); // railway init
+    vi.mocked(runInheritTolerant).mockResolvedValue(); // railway up (crash tolerated)
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // railway up --detach
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // variable set --service my-project
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "my-api.railway.app" }),
@@ -237,10 +237,11 @@ describe("railwayDeploy", () => {
       ["init", "--name", "my-project"],
       "/some/project",
     );
-    expect(run).toHaveBeenCalledWith(
+    expect(runInheritTolerant).toHaveBeenCalledWith(
       "railway",
-      ["up", "--detach"],
+      ["up"],
       "/some/project",
+      300_000,
     );
     expect(run).toHaveBeenLastCalledWith(
       "railway",
@@ -252,8 +253,8 @@ describe("railwayDeploy", () => {
 
   it("prepends https:// when domain has no scheme", async () => {
     vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(runInheritTolerant).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // up --detach
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // variable set
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "my-api.railway.app" }),
@@ -266,8 +267,8 @@ describe("railwayDeploy", () => {
 
   it("returns URL as-is when domain already has https scheme", async () => {
     vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(runInheritTolerant).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // up --detach
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // variable set
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "https://my-api.railway.app" }),
@@ -280,8 +281,8 @@ describe("railwayDeploy", () => {
 
   it("falls back to https:// line scan when domain output is not JSON", async () => {
     vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(runInheritTolerant).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // up --detach
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // variable set
       .mockResolvedValueOnce({
         stdout: "Generating domain...\nhttps://my-api.railway.app",
@@ -294,8 +295,8 @@ describe("railwayDeploy", () => {
 
   it("throws when domain cannot be extracted", async () => {
     vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(runInheritTolerant).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // up --detach
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // variable set
       .mockResolvedValueOnce({ stdout: "{}", stderr: "" });
     await expect(
