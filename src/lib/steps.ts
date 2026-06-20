@@ -120,11 +120,26 @@ export async function railwayLogin(): Promise<void> {
   await runInherit("railway", ["login"]);
 }
 
+export async function pushRailwayEnvVars(cwd: string): Promise<void> {
+  await run(
+    "railway",
+    [
+      "variable",
+      "set",
+      "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
+      "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
+      "--skip-deploys",
+    ],
+    cwd,
+  );
+}
+
 export async function railwayDeploy(
   name: string,
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
+  await pushRailwayEnvVars(cwd);
   await runInherit("railway", ["up", "--detach"], cwd);
   const { stdout } = await run(
     "railway",
