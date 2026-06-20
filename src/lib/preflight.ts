@@ -90,6 +90,23 @@ export async function checkSSH(): Promise<void> {
   }
 }
 
+export async function checkVercelInstalled(): Promise<void> {
+  try {
+    await run("which", ["vercel"]);
+  } catch {
+    throw new Error("Vercel CLI not found.");
+  }
+}
+
+export async function checkVercelLoggedIn(): Promise<void> {
+  try {
+    const { stdout } = await run("vercel", ["whoami"]);
+    if (!stdout.trim()) throw new Error("not logged in");
+  } catch {
+    throw new Error("Not logged into Vercel. Run: vercel login");
+  }
+}
+
 export async function ensurePnpm(): Promise<void> {
   try {
     await run("pnpm", ["--version"]);

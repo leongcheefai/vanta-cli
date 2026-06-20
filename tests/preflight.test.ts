@@ -2,7 +2,25 @@ import { EventEmitter } from "node:events";
 import { createServer } from "node:net";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("net", () => ({ createServer: vi.fn() }));
+vi.mock("net", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:net")>();
+  const { EventEmitter } = await import("node:events");
+  class MockSocket extends EventEmitter {
+    setTimeout = vi.fn();
+    destroy = vi.fn();
+    connect = vi.fn().mockImplementation(function (
+      this: InstanceType<typeof MockSocket>,
+    ) {
+      setImmediate(() =>
+        this.emit(
+          "error",
+          Object.assign(new Error("ECONNREFUSED"), { code: "ECONNREFUSED" }),
+        ),
+      );
+    });
+  }
+  return { ...actual, createServer: vi.fn(), Socket: MockSocket };
+});
 vi.mock("../src/lib/exec.js", () => ({
   run: vi.fn(),
   runInherit: vi.fn(),
@@ -165,5 +183,45 @@ describe("ensurePnpm", () => {
       "pnpm@latest",
       "--activate",
     ]);
+  });
+});
+
+import {
+  checkVercelInstalled,
+  checkVercelLoggedIn,
+} from "../src/lib/preflight.js";
+
+describe("checkVercelInstalled", () => {
+  it("resolves when vercel is on PATH", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: "/usr/local/bin/vercel",
+      stderr: "",
+    });
+    await expect(checkVercelInstalled()).resolves.toBeUndefined();
+  });
+  it("throws when vercel is not found", async () => {
+    vi.mocked(run).mockRejectedValue(new Error("not found"));
+    await expect(checkVercelInstalled()).rejects.toThrow(
+      "Vercel CLI not found",
+    );
+  });
+});
+
+describe("checkVercelLoggedIn", () => {
+  it("resolves when whoami returns a username", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "myuser", stderr: "" });
+    await expect(checkVercelLoggedIn()).resolves.toBeUndefined();
+  });
+  it("throws when whoami returns empty stdout", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
+    await expect(checkVercelLoggedIn()).rejects.toThrow(
+      "Not logged into Vercel",
+    );
+  });
+  it("throws when whoami command fails", async () => {
+    vi.mocked(run).mockRejectedValue(new Error("command failed"));
+    await expect(checkVercelLoggedIn()).rejects.toThrow(
+      "Not logged into Vercel",
+    );
   });
 });

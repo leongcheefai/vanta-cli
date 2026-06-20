@@ -12,8 +12,11 @@ import {
   cloneRepo,
   composeUp,
   installDeps,
+  installVercelCli,
+  pushVercelEnv,
   runMigrations,
   seedAdmin,
+  vercelDeploy,
   waitForPostgres,
 } from "../src/lib/steps.js";
 
@@ -102,7 +105,7 @@ describe("waitForPostgres", () => {
   it("throws when docker compose port returns empty (no host binding)", async () => {
     vi.mocked(run).mockResolvedValueOnce({ stdout: "", stderr: "" });
     await expect(waitForPostgres("/some/project", 5433)).rejects.toThrow(
-      "Docker Postgres could not bind a host port",
+      "Docker Postgres could not bind host port",
     );
   });
 });
@@ -123,6 +126,51 @@ describe("seedAdmin", () => {
       "pnpm",
       ["db:seed", "--email", "admin@example.com", "--password", "supersecret"],
       "/some/project",
+    );
+  });
+});
+
+describe("installVercelCli", () => {
+  it("runs pnpm add -g vercel", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
+    await installVercelCli();
+    expect(run).toHaveBeenCalledWith("pnpm", ["add", "-g", "vercel"]);
+  });
+});
+
+describe("vercelDeploy", () => {
+  it("returns the last https:// line from stdout", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout:
+        "Deploying...\nInspect: https://vercel.com/inspect/abc\nhttps://my-app.vercel.app",
+      stderr: "",
+    });
+    await expect(vercelDeploy("/some/project")).resolves.toBe(
+      "https://my-app.vercel.app",
+    );
+  });
+
+  it("throws when stdout contains no https:// URL", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: "Deploying...\nDone.",
+      stderr: "",
+    });
+    await expect(vercelDeploy("/some/project")).rejects.toThrow(
+      "Could not extract deployment URL",
+    );
+  });
+});
+
+describe("pushVercelEnv", () => {
+  it("calls vercel env add with key, production environment, and value as stdin input", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
+    await pushVercelEnv("BETTER_AUTH_SECRET", "mysecret", "/some/project");
+    expect(run).toHaveBeenCalledWith(
+      "vercel",
+      ["env", "add", "BETTER_AUTH_SECRET", "production"],
+      "/some/project",
+      undefined,
+      "mysecret",
     );
   });
 });

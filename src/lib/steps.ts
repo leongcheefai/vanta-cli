@@ -87,6 +87,27 @@ export async function runMigrations(cwd: string): Promise<void> {
   await run("pnpm", ["db:migrate"], cwd);
 }
 
+export async function installVercelCli(): Promise<void> {
+  await run("pnpm", ["add", "-g", "vercel"]);
+}
+
+export async function vercelDeploy(cwd: string): Promise<string> {
+  const { stdout } = await run("vercel", ["--prod", "--yes"], cwd);
+  const lines = stdout.trim().split("\n");
+  const url = lines.reverse().find((l) => l.startsWith("https://"));
+  if (!url)
+    throw new Error("Could not extract deployment URL from vercel output.");
+  return url;
+}
+
+export async function pushVercelEnv(
+  key: string,
+  value: string,
+  cwd: string,
+): Promise<void> {
+  await run("vercel", ["env", "add", key, "production"], cwd, undefined, value);
+}
+
 export async function seedAdmin(
   cwd: string,
   email: string,

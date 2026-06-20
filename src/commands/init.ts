@@ -7,6 +7,8 @@ import {
   checkDockerRunning,
   checkNode,
   checkSSH,
+  checkVercelInstalled,
+  checkVercelLoggedIn,
   ensurePnpm,
   findFreePort,
 } from "../lib/preflight.js";
@@ -15,8 +17,11 @@ import {
   composeUp,
   ensureDatabase,
   installDeps,
+  installVercelCli,
+  pushVercelEnv,
   runMigrations,
   seedAdmin,
+  vercelDeploy,
   waitForPostgres,
 } from "../lib/steps.js";
 
@@ -67,6 +72,8 @@ export async function init(name: string): Promise<void> {
   }
 
   let dbPort = 5432;
+  let shouldDeployVercel = false;
+  let betterAuthSecret = "";
 
   if (shouldWriteEnv) {
     const resend = await clack.confirm({
@@ -99,6 +106,47 @@ export async function init(name: string): Promise<void> {
     });
     if (clack.isCancel(githubFeedback)) abort("Aborted.");
 
+    const deployVercel = await clack.confirm({
+      message: "Deploy to Vercel?",
+      initialValue: false,
+    });
+    if (clack.isCancel(deployVercel)) abort("Aborted.");
+
+    if (deployVercel) {
+      let vercelReady = false;
+      try {
+        await checkVercelInstalled();
+        vercelReady = true;
+      } catch {
+        const installIt = await clack.confirm({
+          message: "Vercel CLI not found. Install via pnpm?",
+          initialValue: true,
+        });
+        if (clack.isCancel(installIt)) abort("Aborted.");
+        if (installIt) {
+          await runStep("Installing Vercel CLI", installVercelCli);
+          vercelReady = true;
+        } else {
+          clack.log.warn(
+            "Skipping Vercel deploy. Run `vercel --prod` manually later.",
+          );
+        }
+      }
+
+      if (vercelReady) {
+        try {
+          await checkVercelLoggedIn();
+        } catch {
+          clack.log.warn(
+            "Not logged into Vercel. Run `vercel login` then `vercel --prod`.",
+          );
+          vercelReady = false;
+        }
+      }
+
+      shouldDeployVercel = vercelReady;
+    }
+
     // Find free port immediately before writing .env and starting Docker
     // to minimise the window between check and use
     await runStep("Finding a free Postgres port", async () => {
@@ -116,6 +164,9 @@ export async function init(name: string): Promise<void> {
       },
       dbPort,
     );
+
+    const secretMatch = content.match(/BETTER_AUTH_SECRET=(.+)/);
+    betterAuthSecret = secretMatch?.[1]?.trim() ?? "";
 
     writeFileSync(envPath, content);
     clack.log.success(".env written");
@@ -184,5 +235,43 @@ export async function init(name: string): Promise<void> {
     );
   }
 
-  clack.outro(`Done! Run: cd ${name} && pnpm dev`);
+  let vercelUrl: string | null = null;
+
+  if (shouldDeployVercel) {
+    const spinner = clack.spinner();
+    spinner.start("Deploying to Vercel");
+    try {
+      vercelUrl = await vercelDeploy(projectDir);
+      spinner.stop("Deploying to Vercel");
+    } catch (err: unknown) {
+      spinner.stop("Deploying to Vercel", 1);
+      clack.log.warn(
+        `Vercel deploy failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      clack.log.info(`Run manually: cd ${name} && vercel --prod`);
+    }
+
+    if (vercelUrl) {
+      for (const [key, value] of [
+        ["BETTER_AUTH_SECRET", betterAuthSecret],
+        ["BETTER_AUTH_URL", vercelUrl],
+        ["VITE_API_URL", vercelUrl],
+      ] as [string, string][]) {
+        try {
+          await pushVercelEnv(key, value, projectDir);
+        } catch (err: unknown) {
+          clack.log.warn(
+            `Failed to push ${key} to Vercel: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      clack.log.info(
+        "Env vars pushed. Run `vercel --prod` once more to pick them up.",
+      );
+    }
+  }
+
+  const outroLines = [`Local:  cd ${name} && pnpm dev`];
+  if (vercelUrl) outroLines.push(`Vercel: ${vercelUrl}`);
+  clack.outro(outroLines.join("\n"));
 }
