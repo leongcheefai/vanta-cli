@@ -187,7 +187,7 @@ describe("installRailwayCli", () => {
 });
 
 describe("pushRailwayEnvVars", () => {
-  it("sets DATABASE_URL and BETTER_AUTH_SECRET", async () => {
+  it("sets DATABASE_URL and BETTER_AUTH_SECRET targeting the api service", async () => {
     vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
     await pushRailwayEnvVars("/some/project");
     expect(run).toHaveBeenCalledWith(
@@ -197,6 +197,8 @@ describe("pushRailwayEnvVars", () => {
         "set",
         expect.stringMatching(/^DATABASE_URL=postgresql:\/\//),
         expect.stringMatching(/^BETTER_AUTH_SECRET=.{32,}/),
+        "--service",
+        "api",
       ],
       "/some/project",
     );
@@ -204,7 +206,7 @@ describe("pushRailwayEnvVars", () => {
 });
 
 describe("railwayDeploy", () => {
-  it("runs init (inherit) → up (inherit) → set vars → domain in sequence and returns https URL", async () => {
+  it("runs init → up --service api → set vars → domain in sequence and returns https URL", async () => {
     vi.mocked(runInherit)
       .mockResolvedValueOnce() // railway init
       .mockResolvedValueOnce(); // railway up
@@ -224,12 +226,12 @@ describe("railwayDeploy", () => {
     expect(runInherit).toHaveBeenNthCalledWith(
       2,
       "railway",
-      ["up", "--detach"],
+      ["up", "--service", "api", "--detach"],
       "/some/project/apps/api",
     );
     expect(run).toHaveBeenLastCalledWith(
       "railway",
-      ["domain", "--json", "--port", "3000"],
+      ["domain", "--json", "--port", "3000", "--service", "api"],
       "/some/project/apps/api",
     );
     expect(url).toBe("https://my-api.railway.app");

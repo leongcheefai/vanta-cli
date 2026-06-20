@@ -120,6 +120,8 @@ export async function railwayLogin(): Promise<void> {
   await runInherit("railway", ["login"]);
 }
 
+const RAILWAY_SERVICE = "api";
+
 export async function pushRailwayEnvVars(cwd: string): Promise<void> {
   await run(
     "railway",
@@ -128,6 +130,8 @@ export async function pushRailwayEnvVars(cwd: string): Promise<void> {
       "set",
       "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
       "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
+      "--service",
+      RAILWAY_SERVICE,
     ],
     cwd,
   );
@@ -138,12 +142,13 @@ export async function railwayDeploy(
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
-  await runInherit("railway", ["up", "--detach"], cwd);
-  // Set env vars after up so the service exists; triggers a redeploy with correct vars.
+  // Name the service explicitly so subsequent commands can reference it without
+  // relying on local link state (which --detach may not persist).
+  await runInherit("railway", ["up", "--service", RAILWAY_SERVICE, "--detach"], cwd);
   await pushRailwayEnvVars(cwd);
   const { stdout } = await run(
     "railway",
-    ["domain", "--json", "--port", "3000"],
+    ["domain", "--json", "--port", "3000", "--service", RAILWAY_SERVICE],
     cwd,
   );
   let domain: string | undefined;
