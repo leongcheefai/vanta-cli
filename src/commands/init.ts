@@ -332,7 +332,7 @@ export async function init(name: string): Promise<void> {
   if (shouldDeployRailway) {
     clack.log.info("Deploying backend to Railway...");
     try {
-      // Deploy from monorepo root so Nixpacks picks up pnpm-lock.yaml
+      // Deploy from monorepo root so the builder picks up pnpm-lock.yaml
       // and resolves workspace:* dependencies correctly.
       railwayUrl = await railwayDeploy(name, projectDir);
       clack.log.success(`Backend: ${railwayUrl}`);
