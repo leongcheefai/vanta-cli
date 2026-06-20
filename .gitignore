@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.log
 .DS_Store
+# vanta init test clones
+vanta-base-admin*/
+test-*/

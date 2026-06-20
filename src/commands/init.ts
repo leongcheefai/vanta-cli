@@ -113,7 +113,6 @@ export async function init(name: string): Promise<void> {
     });
     if (clack.isCancel(deployVercel)) abort("Aborted.");
 
-    let apiUrl = "";
     if (deployVercel) {
       const apiUrlInput = await clack.text({
         message: "API URL for production (VITE_API_URL):",

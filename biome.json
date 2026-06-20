@@ -1,6 +1,8 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
-  "files": { "ignore": ["dist/", "node_modules/"] },
+  "files": {
+    "ignore": ["dist/", "node_modules/", "vanta-base-admin*/**", "test-*/**"]
+  },
   "organizeImports": { "enabled": true },
   "linter": {
     "enabled": true,
