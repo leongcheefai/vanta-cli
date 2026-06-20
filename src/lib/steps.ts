@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { run, runInherit } from "./exec.js";
+import { run, runInherit, runInheritTolerant } from "./exec.js";
 
 const REPO_URL = "git@github.com:leongcheefai/vanta-base-admin.git";
 
@@ -120,10 +120,7 @@ export async function railwayLogin(): Promise<void> {
   await runInherit("railway", ["login"]);
 }
 
-export async function pushRailwayEnvVars(
-  cwd: string,
-  service: string,
-): Promise<void> {
+export async function pushRailwayEnvVars(cwd: string): Promise<void> {
   await run(
     "railway",
     [
@@ -131,26 +128,9 @@ export async function pushRailwayEnvVars(
       "set",
       "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
       "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
-      "--service",
-      service,
     ],
     cwd,
   );
-}
-
-export async function getRailwayServiceName(cwd: string): Promise<string> {
-  const { stdout } = await run("railway", ["service", "list", "--json"], cwd);
-  let list: Array<{ name: string }>;
-  try {
-    const parsed = JSON.parse(stdout);
-    list = Array.isArray(parsed)
-      ? parsed
-      : (parsed.nodes ?? parsed.services ?? []);
-  } catch {
-    throw new Error("Could not parse Railway service list output.");
-  }
-  if (!list.length) throw new Error("No Railway services found in project.");
-  return list[0].name;
 }
 
 export async function railwayDeploy(
@@ -158,14 +138,15 @@ export async function railwayDeploy(
   cwd: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
-  // Let Railway create the service naturally; --service on a non-existent
-  // service name fails. Discover the created service name afterward.
-  await runInherit("railway", ["up", "--detach"], cwd);
-  const service = await getRailwayServiceName(cwd);
-  await pushRailwayEnvVars(cwd, service);
+  // Run without --detach: Railway saves the service link to local config
+  // during the upload phase. The first deploy may fail (app needs DB env
+  // vars) but we tolerate that — variable set runs next and triggers a
+  // redeploy with correct vars. 5-min timeout handles runaway log streams.
+  await runInheritTolerant("railway", ["up"], cwd, 300_000);
+  await pushRailwayEnvVars(cwd);
   const { stdout } = await run(
     "railway",
-    ["domain", "--json", "--port", "3000", "--service", service],
+    ["domain", "--json", "--port", "3000"],
     cwd,
   );
   let domain: string | undefined;

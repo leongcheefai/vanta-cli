@@ -4,14 +4,14 @@ vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("../src/lib/exec.js", () => ({
   run: vi.fn(),
   runInherit: vi.fn(),
+  runInheritTolerant: vi.fn(),
 }));
 
 import { existsSync } from "node:fs";
-import { run, runInherit } from "../src/lib/exec.js";
+import { run, runInherit, runInheritTolerant } from "../src/lib/exec.js";
 import {
   cloneRepo,
   composeUp,
-  getRailwayServiceName,
   installDeps,
   installRailwayCli,
   installVercelCli,
@@ -188,9 +188,9 @@ describe("installRailwayCli", () => {
 });
 
 describe("pushRailwayEnvVars", () => {
-  it("sets DATABASE_URL and BETTER_AUTH_SECRET for the given service", async () => {
+  it("sets DATABASE_URL and BETTER_AUTH_SECRET using linked service", async () => {
     vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
-    await pushRailwayEnvVars("/some/project", "my-service");
+    await pushRailwayEnvVars("/some/project");
     expect(run).toHaveBeenCalledWith(
       "railway",
       [
@@ -198,85 +198,37 @@ describe("pushRailwayEnvVars", () => {
         "set",
         expect.stringMatching(/^DATABASE_URL=postgresql:\/\//),
         expect.stringMatching(/^BETTER_AUTH_SECRET=.{32,}/),
-        "--service",
-        "my-service",
       ],
       "/some/project",
     );
   });
 });
 
-describe("getRailwayServiceName", () => {
-  it("returns first service name from array response", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify([{ name: "web", id: "abc" }]),
-      stderr: "",
-    });
-    await expect(getRailwayServiceName("/some/project")).resolves.toBe("web");
-  });
-
-  it("returns first service name from nodes response", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify({ nodes: [{ name: "api", id: "def" }] }),
-      stderr: "",
-    });
-    await expect(getRailwayServiceName("/some/project")).resolves.toBe("api");
-  });
-
-  it("throws when service list is empty", async () => {
-    vi.mocked(run).mockResolvedValue({ stdout: "[]", stderr: "" });
-    await expect(getRailwayServiceName("/some/project")).rejects.toThrow(
-      "No Railway services found",
-    );
-  });
-
-  it("throws when output is not JSON", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: "something went wrong",
-      stderr: "",
-    });
-    await expect(getRailwayServiceName("/some/project")).rejects.toThrow(
-      "Could not parse Railway service list output",
-    );
-  });
-});
-
-const SERVICE_LIST_MOCK = JSON.stringify([{ name: "web", id: "svc-123" }]);
-
 describe("railwayDeploy", () => {
-  it("runs init → up → discover service → set vars → domain and returns https URL", async () => {
-    vi.mocked(runInherit)
-      .mockResolvedValueOnce() // railway init
-      .mockResolvedValueOnce(); // railway up
+  it("runs init → up (tolerant) → set vars → domain and returns https URL", async () => {
+    vi.mocked(runInherit).mockResolvedValue(); // railway init
+    vi.mocked(runInheritTolerant).mockResolvedValue(); // railway up
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: SERVICE_LIST_MOCK, stderr: "" }) // service list
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // variable set
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "my-api.railway.app" }),
         stderr: "",
       }); // domain
     const url = await railwayDeploy("my-project", "/some/project");
-    expect(runInherit).toHaveBeenNthCalledWith(
-      1,
+    expect(runInherit).toHaveBeenCalledWith(
       "railway",
       ["init", "--name", "my-project"],
       "/some/project",
     );
-    expect(runInherit).toHaveBeenNthCalledWith(
-      2,
+    expect(runInheritTolerant).toHaveBeenCalledWith(
       "railway",
-      ["up", "--detach"],
+      ["up"],
       "/some/project",
-    );
-    expect(run).toHaveBeenNthCalledWith(
-      1,
-      "railway",
-      ["service", "list", "--json"],
-      "/some/project",
+      300_000,
     );
     expect(run).toHaveBeenLastCalledWith(
       "railway",
-      ["domain", "--json", "--port", "3000", "--service", "web"],
+      ["domain", "--json", "--port", "3000"],
       "/some/project",
     );
     expect(url).toBe("https://my-api.railway.app");
@@ -284,50 +236,50 @@ describe("railwayDeploy", () => {
 
   it("prepends https:// when domain has no scheme", async () => {
     vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(runInheritTolerant).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: SERVICE_LIST_MOCK, stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "my-api.railway.app" }),
         stderr: "",
       });
-    await expect(
-      railwayDeploy("my-project", "/some/project"),
-    ).resolves.toBe("https://my-api.railway.app");
+    await expect(railwayDeploy("my-project", "/some/project")).resolves.toBe(
+      "https://my-api.railway.app",
+    );
   });
 
   it("returns URL as-is when domain already has https scheme", async () => {
     vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(runInheritTolerant).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: SERVICE_LIST_MOCK, stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({
         stdout: JSON.stringify({ domain: "https://my-api.railway.app" }),
         stderr: "",
       });
-    await expect(
-      railwayDeploy("my-project", "/some/project"),
-    ).resolves.toBe("https://my-api.railway.app");
+    await expect(railwayDeploy("my-project", "/some/project")).resolves.toBe(
+      "https://my-api.railway.app",
+    );
   });
 
   it("falls back to https:// line scan when domain output is not JSON", async () => {
     vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(runInheritTolerant).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: SERVICE_LIST_MOCK, stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({
         stdout: "Generating domain...\nhttps://my-api.railway.app",
         stderr: "",
       });
-    await expect(
-      railwayDeploy("my-project", "/some/project"),
-    ).resolves.toBe("https://my-api.railway.app");
+    await expect(railwayDeploy("my-project", "/some/project")).resolves.toBe(
+      "https://my-api.railway.app",
+    );
   });
 
   it("throws when domain cannot be extracted", async () => {
     vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(runInheritTolerant).mockResolvedValue();
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: SERVICE_LIST_MOCK, stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockResolvedValueOnce({ stdout: "{}", stderr: "" });
     await expect(
