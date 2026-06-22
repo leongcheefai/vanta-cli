@@ -124,6 +124,24 @@ export async function checkRailwayLoggedIn(): Promise<void> {
   }
 }
 
+export async function checkSupabaseInstalled(): Promise<void> {
+  try {
+    await run("which", ["supabase"]);
+  } catch {
+    throw new Error("Supabase CLI not found.");
+  }
+}
+
+export async function checkSupabaseLoggedIn(): Promise<void> {
+  try {
+    const { stdout } = await run("supabase", ["orgs", "list", "--json"]);
+    const orgs = JSON.parse(stdout);
+    if (!Array.isArray(orgs)) throw new Error("unexpected output");
+  } catch {
+    throw new Error("Not logged into Supabase. Run: supabase login");
+  }
+}
+
 export async function ensurePnpm(): Promise<void> {
   try {
     await run("pnpm", ["--version"]);

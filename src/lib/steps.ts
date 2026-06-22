@@ -83,8 +83,16 @@ export async function ensureDatabase(
   });
 }
 
-export async function runMigrations(cwd: string): Promise<void> {
-  await run("pnpm", ["db:migrate"], cwd);
+export async function runMigrations(
+  cwd: string,
+  databaseUrl?: string,
+): Promise<void> {
+  await run(
+    "pnpm",
+    ["db:migrate"],
+    cwd,
+    databaseUrl ? { DATABASE_URL: databaseUrl } : undefined,
+  );
 }
 
 export async function installVercelCli(): Promise<void> {
@@ -131,6 +139,7 @@ const RAILWAY_PLACEHOLDER_VARS = [
 export async function railwayDeploy(
   name: string,
   cwd: string,
+  databaseUrl?: string,
 ): Promise<string> {
   await runInherit("railway", ["init", "--name", name], cwd);
   // Create the service WITH env vars BEFORE deploying any code. railway add
@@ -138,8 +147,11 @@ export async function railwayDeploy(
   // deploy boots healthy — no crash, and no "Cannot redeploy without a
   // snapshot" error from setting variables on a service that has never
   // successfully deployed.
+  const vars = databaseUrl
+    ? [`DATABASE_URL=${databaseUrl}`, RAILWAY_PLACEHOLDER_VARS[1]]
+    : RAILWAY_PLACEHOLDER_VARS;
   const addArgs = ["add", "--service", name];
-  for (const v of RAILWAY_PLACEHOLDER_VARS) addArgs.push("--variables", v);
+  for (const v of vars) addArgs.push("--variables", v);
   await run("railway", addArgs, cwd);
   // Fresh deploy into the service that already has its vars. --detach uploads
   // and triggers the deploy without streaming build/deploy logs. This is a
@@ -168,6 +180,88 @@ export async function seedAdmin(
   cwd: string,
   email: string,
   password: string,
+  databaseUrl?: string,
 ): Promise<void> {
-  await run("pnpm", ["db:seed", "--email", email, "--password", password], cwd);
+  await run(
+    "pnpm",
+    ["db:seed", "--email", email, "--password", password],
+    cwd,
+    databaseUrl ? { DATABASE_URL: databaseUrl } : undefined,
+  );
+}
+
+export async function installSupabaseCli(): Promise<void> {
+  await run("pnpm", ["add", "-g", "supabase"]);
+}
+
+export async function supabaseLogin(): Promise<void> {
+  await runInherit("supabase", ["login"]);
+}
+
+export async function listSupabaseOrgs(): Promise<
+  { id: string; name: string }[]
+> {
+  const { stdout } = await run("supabase", ["orgs", "list", "--json"]);
+  const orgs = JSON.parse(stdout) as { id: string; name: string }[];
+  return orgs.map((o) => ({ id: o.id, name: o.name }));
+}
+
+export async function createSupabaseOrg(name: string): Promise<string> {
+  const { stdout } = await run("supabase", [
+    "orgs",
+    "create",
+    name,
+    "--json",
+  ]);
+  const org = JSON.parse(stdout) as { id: string };
+  return org.id;
+}
+
+export async function createSupabaseProject(
+  orgId: string,
+  name: string,
+  password: string,
+  region: string,
+): Promise<string> {
+  const { stdout } = await run("supabase", [
+    "projects",
+    "create",
+    name,
+    "--org-id",
+    orgId,
+    "--db-password",
+    password,
+    "--region",
+    region,
+    "--json",
+  ]);
+  const project = JSON.parse(stdout) as { id?: string; ref?: string };
+  const ref = project.ref ?? project.id;
+  if (!ref) throw new Error("Could not extract project ref from Supabase output.");
+  return ref;
+}
+
+export async function waitForSupabaseProject(
+  ref: string,
+  retries = 60,
+  delayMs = 5000,
+): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    const { stdout } = await run("supabase", [
+      "projects",
+      "get",
+      ref,
+      "--json",
+    ]);
+    const project = JSON.parse(stdout) as { status?: string };
+    if (project.status === "ACTIVE_HEALTHY") return;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error(
+    "Supabase project did not become ready in time. Check the Supabase dashboard.",
+  );
+}
+
+export function buildSupabaseDbUrl(ref: string, password: string): string {
+  return `postgresql://postgres:${encodeURIComponent(password)}@db.${ref}.supabase.co:5432/postgres`;
 }

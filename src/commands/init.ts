@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
@@ -9,26 +10,35 @@ import {
   checkRailwayInstalled,
   checkRailwayLoggedIn,
   checkSSH,
+  checkSupabaseInstalled,
+  checkSupabaseLoggedIn,
   checkVercelInstalled,
   checkVercelLoggedIn,
   ensurePnpm,
   findFreePort,
 } from "../lib/preflight.js";
 import {
+  buildSupabaseDbUrl,
   cloneRepo,
   composeUp,
+  createSupabaseOrg,
+  createSupabaseProject,
   ensureDatabase,
   installDeps,
   installRailwayCli,
+  installSupabaseCli,
   installVercelCli,
+  listSupabaseOrgs,
   pushVercelEnv,
   railwayDeploy,
   railwayLogin,
   runMigrations,
   seedAdmin,
+  supabaseLogin,
   vercelDeploy,
   vercelLogin,
   waitForPostgres,
+  waitForSupabaseProject,
 } from "../lib/steps.js";
 
 async function runStep(label: string, fn: () => Promise<void>): Promise<void> {
@@ -81,6 +91,14 @@ export async function init(name: string): Promise<void> {
   let shouldDeployVercel = false;
   let shouldDeployRailway = false;
   let apiUrl = "";
+  let shouldProvisionSupabase = false;
+  let supabaseDbUrl: string | undefined;
+  let supabaseDbPassword: string | undefined;
+  let supabaseOrgId: string | undefined;
+  let supabaseProjName: string = name;
+  let supabaseRegion = "ap-southeast-1";
+  let adminEmail: string | undefined;
+  let adminPassword: string | undefined;
 
   if (shouldWriteEnv) {
     const resend = await clack.confirm({
@@ -169,6 +187,157 @@ export async function init(name: string): Promise<void> {
       }
 
       shouldDeployRailway = railwayReady;
+
+      if (shouldDeployRailway) {
+        const provisionSupabase = await clack.confirm({
+          message: "Provision a Supabase database for Railway?",
+          initialValue: true,
+        });
+        if (clack.isCancel(provisionSupabase)) abort("Aborted.");
+
+        if (provisionSupabase) {
+          let supabaseReady = false;
+          try {
+            await checkSupabaseInstalled();
+            supabaseReady = true;
+          } catch {
+            const installIt = await clack.confirm({
+              message: "Supabase CLI not found. Install via pnpm?",
+              initialValue: true,
+            });
+            if (clack.isCancel(installIt)) abort("Aborted.");
+            if (installIt) {
+              await runStep("Installing Supabase CLI", installSupabaseCli);
+              supabaseReady = true;
+            } else {
+              clack.log.warn(
+                "Skipping Supabase provisioning. Set DATABASE_URL manually in Railway dashboard.",
+              );
+            }
+          }
+
+          if (supabaseReady) {
+            try {
+              await checkSupabaseLoggedIn();
+            } catch {
+              const doLogin = await clack.confirm({
+                message: "Not logged into Supabase. Login now?",
+                initialValue: true,
+              });
+              if (clack.isCancel(doLogin)) abort("Aborted.");
+              if (doLogin) {
+                await supabaseLogin();
+                try {
+                  await checkSupabaseLoggedIn();
+                } catch {
+                  clack.log.warn(
+                    "Still not logged in. Skipping Supabase provisioning.",
+                  );
+                  supabaseReady = false;
+                }
+              } else {
+                clack.log.warn(
+                  "Skipping Supabase provisioning. Set DATABASE_URL manually in Railway dashboard.",
+                );
+                supabaseReady = false;
+              }
+            }
+          }
+
+          if (supabaseReady) {
+            let orgs: { id: string; name: string }[] = [];
+            try {
+              orgs = await listSupabaseOrgs();
+            } catch {
+              clack.log.warn("Could not list Supabase orgs.");
+            }
+
+            const CREATE_NEW = "__create_new__";
+            const orgOptions = [
+              ...orgs.map((o) => ({ value: o.id, label: o.name })),
+              { value: CREATE_NEW, label: "Create new organization..." },
+            ];
+
+            const selectedOrg = await clack.select({
+              message: "Select Supabase organization:",
+              options: orgOptions,
+            });
+            if (clack.isCancel(selectedOrg)) abort("Aborted.");
+
+            if (selectedOrg === CREATE_NEW) {
+              const newOrgName = await clack.text({
+                message: "New organization name:",
+                validate: (v) => (v.trim() ? undefined : "Name required"),
+              });
+              if (clack.isCancel(newOrgName)) abort("Aborted.");
+              try {
+                supabaseOrgId = await createSupabaseOrg(
+                  newOrgName as string,
+                );
+              } catch (err: unknown) {
+                clack.log.warn(
+                  `Failed to create org: ${err instanceof Error ? err.message : String(err)}`,
+                );
+                supabaseReady = false;
+              }
+            } else {
+              supabaseOrgId = selectedOrg as string;
+            }
+          }
+
+          if (supabaseReady && supabaseOrgId) {
+            const projNameInput = await clack.text({
+              message: "Supabase project name:",
+              initialValue: name,
+              validate: (v) => (v.trim() ? undefined : "Name required"),
+            });
+            if (clack.isCancel(projNameInput)) abort("Aborted.");
+            supabaseProjName = projNameInput as string;
+
+            const SUPABASE_REGIONS = [
+              {
+                value: "ap-southeast-1",
+                label: "ap-southeast-1 (Singapore)",
+              },
+              {
+                value: "us-east-1",
+                label: "us-east-1 (US East N. Virginia)",
+              },
+              {
+                value: "us-west-1",
+                label: "us-west-1 (US West Oregon)",
+              },
+              {
+                value: "eu-west-1",
+                label: "eu-west-1 (EU West Ireland)",
+              },
+              {
+                value: "eu-central-1",
+                label: "eu-central-1 (EU Central Frankfurt)",
+              },
+              {
+                value: "ap-northeast-1",
+                label: "ap-northeast-1 (AP Northeast Tokyo)",
+              },
+              {
+                value: "ap-southeast-2",
+                label: "ap-southeast-2 (AP Southeast Sydney)",
+              },
+            ];
+
+            const regionInput = await clack.select({
+              message: "Supabase region:",
+              options: SUPABASE_REGIONS,
+              initialValue: "ap-southeast-1",
+            });
+            if (clack.isCancel(regionInput)) abort("Aborted.");
+            supabaseRegion = regionInput as string;
+
+            supabaseDbPassword = randomBytes(24).toString("hex");
+            shouldProvisionSupabase = true;
+          }
+        }
+      }
     }
 
     const deployVercel = await clack.confirm({
@@ -296,35 +465,74 @@ export async function init(name: string): Promise<void> {
   if (clack.isCancel(createAdmin)) abort("Aborted.");
 
   if (createAdmin) {
-    const email = await clack.text({
+    const emailInput = await clack.text({
       message: "Admin email:",
       validate: (v) => (v.includes("@") ? undefined : "Enter a valid email"),
     });
-    if (clack.isCancel(email)) abort("Aborted.");
+    if (clack.isCancel(emailInput)) abort("Aborted.");
+    adminEmail = emailInput as string;
 
-    let password!: string;
+    let pw!: string;
     while (true) {
-      const pw = await clack.password({
+      const pwInput = await clack.password({
         message: "Admin password (min 8 chars):",
       });
-      if (clack.isCancel(pw)) abort("Aborted.");
-      if (pw.length < 8) {
+      if (clack.isCancel(pwInput)) abort("Aborted.");
+      if (pwInput.length < 8) {
         clack.log.warn("Password must be at least 8 characters.");
         continue;
       }
       const confirm = await clack.password({ message: "Confirm password:" });
       if (clack.isCancel(confirm)) abort("Aborted.");
-      if (confirm !== pw) {
+      if (confirm !== pwInput) {
         clack.log.warn("Passwords do not match. Try again.");
         continue;
       }
-      password = pw;
+      pw = pwInput;
       break;
     }
+    adminPassword = pw;
 
     await runStep("Creating admin user", () =>
-      seedAdmin(projectDir, email, password),
+      seedAdmin(projectDir, adminEmail!, adminPassword!),
     );
+  }
+
+  if (shouldProvisionSupabase && supabaseOrgId && supabaseDbPassword) {
+    let ref: string | undefined;
+    try {
+      await runStep(
+        `Creating Supabase project "${supabaseProjName}"`,
+        async () => {
+          ref = await createSupabaseProject(
+            supabaseOrgId!,
+            supabaseProjName,
+            supabaseDbPassword!,
+            supabaseRegion,
+          );
+        },
+      );
+      await runStep("Waiting for Supabase project to be ready", () =>
+        waitForSupabaseProject(ref!),
+      );
+      supabaseDbUrl = buildSupabaseDbUrl(ref!, supabaseDbPassword);
+      await runStep("Running migrations on Supabase", () =>
+        runMigrations(projectDir, supabaseDbUrl),
+      );
+      if (adminEmail && adminPassword) {
+        await runStep("Seeding admin on Supabase", () =>
+          seedAdmin(projectDir, adminEmail!, adminPassword!, supabaseDbUrl),
+        );
+      }
+    } catch (err: unknown) {
+      clack.log.warn(
+        `Supabase provisioning failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      clack.log.warn(
+        "Railway will deploy with placeholder DATABASE_URL. Update it in Railway dashboard → Variables.",
+      );
+      supabaseDbUrl = undefined;
+    }
   }
 
   let railwayUrl: string | undefined;
@@ -334,11 +542,13 @@ export async function init(name: string): Promise<void> {
     try {
       // Deploy from monorepo root so the builder picks up pnpm-lock.yaml
       // and resolves workspace:* dependencies correctly.
-      railwayUrl = await railwayDeploy(name, projectDir);
+      railwayUrl = await railwayDeploy(name, projectDir, supabaseDbUrl);
       clack.log.success(`Backend: ${railwayUrl}`);
-      clack.log.warn(
-        "Placeholder env vars were set. Update DATABASE_URL and BETTER_AUTH_SECRET with real values in Railway dashboard → Variables tab.",
-      );
+      if (!supabaseDbUrl) {
+        clack.log.warn(
+          "Placeholder env vars were set. Update DATABASE_URL and BETTER_AUTH_SECRET with real values in Railway dashboard → Variables tab.",
+        );
+      }
       apiUrl = railwayUrl;
     } catch (err: unknown) {
       clack.log.warn(
@@ -381,5 +591,8 @@ export async function init(name: string): Promise<void> {
   const outroLines = [`Local:  cd ${name} && pnpm dev`];
   if (railwayUrl) outroLines.push(`Railway: ${railwayUrl}`);
   if (vercelUrl) outroLines.push(`Vercel: ${vercelUrl}`);
+  if (supabaseDbUrl) {
+    outroLines.push(`Supabase DB password: ${supabaseDbPassword}`);
+  }
   clack.outro(outroLines.join("\n"));
 }

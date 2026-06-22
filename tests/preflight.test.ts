@@ -189,6 +189,8 @@ describe("ensurePnpm", () => {
 import {
   checkRailwayInstalled,
   checkRailwayLoggedIn,
+  checkSupabaseInstalled,
+  checkSupabaseLoggedIn,
   checkVercelInstalled,
   checkVercelLoggedIn,
 } from "../src/lib/preflight.js";
@@ -259,6 +261,48 @@ describe("checkRailwayLoggedIn", () => {
     vi.mocked(run).mockRejectedValue(new Error("command failed"));
     await expect(checkRailwayLoggedIn()).rejects.toThrow(
       "Not logged into Railway",
+    );
+  });
+});
+
+describe("checkSupabaseInstalled", () => {
+  it("resolves when supabase is on PATH", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: "/usr/local/bin/supabase",
+      stderr: "",
+    });
+    await expect(checkSupabaseInstalled()).resolves.toBeUndefined();
+  });
+  it("throws when supabase is not found", async () => {
+    vi.mocked(run).mockRejectedValue(new Error("not found"));
+    await expect(checkSupabaseInstalled()).rejects.toThrow(
+      "Supabase CLI not found",
+    );
+  });
+});
+
+describe("checkSupabaseLoggedIn", () => {
+  it("resolves when orgs list returns array", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: JSON.stringify([{ id: "org-1", name: "My Org" }]),
+      stderr: "",
+    });
+    await expect(checkSupabaseLoggedIn()).resolves.toBeUndefined();
+  });
+  it("resolves when orgs list returns empty array (no orgs but logged in)", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "[]", stderr: "" });
+    await expect(checkSupabaseLoggedIn()).resolves.toBeUndefined();
+  });
+  it("throws when command fails", async () => {
+    vi.mocked(run).mockRejectedValue(new Error("not logged in"));
+    await expect(checkSupabaseLoggedIn()).rejects.toThrow(
+      "Not logged into Supabase",
+    );
+  });
+  it("throws when output is not a JSON array", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "not json", stderr: "" });
+    await expect(checkSupabaseLoggedIn()).rejects.toThrow(
+      "Not logged into Supabase",
     );
   });
 });

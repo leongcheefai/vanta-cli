@@ -9,17 +9,23 @@ vi.mock("../src/lib/exec.js", () => ({
 import { existsSync } from "node:fs";
 import { run, runInherit } from "../src/lib/exec.js";
 import {
+  buildSupabaseDbUrl,
   cloneRepo,
   composeUp,
+  createSupabaseOrg,
+  createSupabaseProject,
   installDeps,
   installRailwayCli,
+  installSupabaseCli,
   installVercelCli,
+  listSupabaseOrgs,
   pushVercelEnv,
   railwayDeploy,
   runMigrations,
   seedAdmin,
   vercelDeploy,
   waitForPostgres,
+  waitForSupabaseProject,
 } from "../src/lib/steps.js";
 
 beforeEach(() => {
@@ -116,7 +122,23 @@ describe("runMigrations", () => {
   it("runs pnpm db:migrate in given cwd", async () => {
     vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
     await runMigrations("/some/project");
-    expect(run).toHaveBeenCalledWith("pnpm", ["db:migrate"], "/some/project");
+    expect(run).toHaveBeenCalledWith(
+      "pnpm",
+      ["db:migrate"],
+      "/some/project",
+      undefined,
+    );
+  });
+
+  it("passes DATABASE_URL env when databaseUrl provided", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
+    await runMigrations("/some/project", "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres");
+    expect(run).toHaveBeenCalledWith(
+      "pnpm",
+      ["db:migrate"],
+      "/some/project",
+      { DATABASE_URL: "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres" },
+    );
   });
 });
 
@@ -128,6 +150,23 @@ describe("seedAdmin", () => {
       "pnpm",
       ["db:seed", "--email", "admin@example.com", "--password", "supersecret"],
       "/some/project",
+      undefined,
+    );
+  });
+
+  it("passes DATABASE_URL env when databaseUrl provided", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
+    await seedAdmin(
+      "/some/project",
+      "admin@example.com",
+      "supersecret",
+      "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres",
+    );
+    expect(run).toHaveBeenCalledWith(
+      "pnpm",
+      ["db:seed", "--email", "admin@example.com", "--password", "supersecret"],
+      "/some/project",
+      { DATABASE_URL: "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres" },
     );
   });
 });
@@ -277,6 +316,168 @@ describe("railwayDeploy", () => {
       .mockResolvedValueOnce({ stdout: "{}", stderr: "" });
     await expect(railwayDeploy("my-project", "/some/project")).rejects.toThrow(
       "Could not extract Railway domain from output.",
+    );
+  });
+
+  it("uses real databaseUrl in --variables when provided", async () => {
+    const realUrl =
+      "postgresql://postgres:secret@db.abc123.supabase.co:5432/postgres";
+    vi.mocked(runInherit).mockResolvedValue();
+    vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // add
+      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // up --detach
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ domain: "my-api.railway.app" }),
+        stderr: "",
+      });
+    await railwayDeploy("my-project", "/some/project", realUrl);
+    expect(run).toHaveBeenCalledWith(
+      "railway",
+      [
+        "add",
+        "--service",
+        "my-project",
+        "--variables",
+        `DATABASE_URL=${realUrl}`,
+        "--variables",
+        expect.stringMatching(/^BETTER_AUTH_SECRET=.{32,}/),
+      ],
+      "/some/project",
+    );
+  });
+});
+
+describe("installSupabaseCli", () => {
+  it("runs pnpm add -g supabase", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
+    await installSupabaseCli();
+    expect(run).toHaveBeenCalledWith("pnpm", ["add", "-g", "supabase"]);
+  });
+});
+
+describe("listSupabaseOrgs", () => {
+  it("returns parsed org list", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: JSON.stringify([
+        { id: "org-1", name: "Acme" },
+        { id: "org-2", name: "Beta" },
+      ]),
+      stderr: "",
+    });
+    await expect(listSupabaseOrgs()).resolves.toEqual([
+      { id: "org-1", name: "Acme" },
+      { id: "org-2", name: "Beta" },
+    ]);
+    expect(run).toHaveBeenCalledWith("supabase", ["orgs", "list", "--json"]);
+  });
+});
+
+describe("createSupabaseOrg", () => {
+  it("returns org id from JSON output", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: JSON.stringify({ id: "new-org-id", name: "My Org" }),
+      stderr: "",
+    });
+    await expect(createSupabaseOrg("My Org")).resolves.toBe("new-org-id");
+    expect(run).toHaveBeenCalledWith("supabase", [
+      "orgs",
+      "create",
+      "My Org",
+      "--json",
+    ]);
+  });
+});
+
+describe("createSupabaseProject", () => {
+  it("returns project ref from JSON output (ref field)", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: JSON.stringify({ ref: "abcdefghijklmnop", name: "my-project" }),
+      stderr: "",
+    });
+    await expect(
+      createSupabaseProject("org-1", "my-project", "secretpass", "ap-southeast-1"),
+    ).resolves.toBe("abcdefghijklmnop");
+    expect(run).toHaveBeenCalledWith("supabase", [
+      "projects",
+      "create",
+      "my-project",
+      "--org-id",
+      "org-1",
+      "--db-password",
+      "secretpass",
+      "--region",
+      "ap-southeast-1",
+      "--json",
+    ]);
+  });
+
+  it("falls back to id field when ref is absent", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: JSON.stringify({ id: "abcdefghijklmnop" }),
+      stderr: "",
+    });
+    await expect(
+      createSupabaseProject("org-1", "my-project", "secretpass", "us-east-1"),
+    ).resolves.toBe("abcdefghijklmnop");
+  });
+
+  it("throws when neither ref nor id present", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "{}", stderr: "" });
+    await expect(
+      createSupabaseProject("org-1", "my-project", "secretpass", "us-east-1"),
+    ).rejects.toThrow("Could not extract project ref");
+  });
+});
+
+describe("waitForSupabaseProject", () => {
+  it("resolves immediately when project is ACTIVE_HEALTHY", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: JSON.stringify({ status: "ACTIVE_HEALTHY" }),
+      stderr: "",
+    });
+    await expect(
+      waitForSupabaseProject("ref123", 3, 0),
+    ).resolves.toBeUndefined();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls until ACTIVE_HEALTHY", async () => {
+    vi.mocked(run)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ status: "COMING_UP" }),
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ status: "ACTIVE_HEALTHY" }),
+        stderr: "",
+      });
+    await expect(
+      waitForSupabaseProject("ref123", 5, 0),
+    ).resolves.toBeUndefined();
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws when project never becomes ready", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: JSON.stringify({ status: "COMING_UP" }),
+      stderr: "",
+    });
+    await expect(
+      waitForSupabaseProject("ref123", 2, 0),
+    ).rejects.toThrow("Supabase project did not become ready in time");
+  });
+});
+
+describe("buildSupabaseDbUrl", () => {
+  it("builds correct postgresql URL", () => {
+    expect(buildSupabaseDbUrl("abcdefghijklmnop", "mypassword")).toBe(
+      "postgresql://postgres:mypassword@db.abcdefghijklmnop.supabase.co:5432/postgres",
+    );
+  });
+
+  it("percent-encodes special chars in password", () => {
+    expect(buildSupabaseDbUrl("ref123", "p@ss:w/rd")).toBe(
+      "postgresql://postgres:p%40ss%3Aw%2Frd@db.ref123.supabase.co:5432/postgres",
     );
   });
 });
