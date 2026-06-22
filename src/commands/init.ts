@@ -54,8 +54,6 @@ async function runStep(label: string, fn: () => Promise<void>): Promise<void> {
   }
 }
 
-// Like runStep but warns and returns false instead of exiting — use for
-// optional steps where failure should fall back gracefully.
 async function runStepSoft(
   label: string,
   fn: () => Promise<void>,
@@ -114,7 +112,7 @@ export async function init(name: string): Promise<void> {
   let supabaseDbUrl: string | undefined;
   let supabaseDbPassword: string | undefined;
   let supabaseOrgId: string | undefined;
-  let supabaseProjName: string = name;
+  let supabaseProjName = name;
   let supabaseRegion = "ap-southeast-1";
   let adminEmail: string | undefined;
   let adminPassword: string | undefined;
@@ -339,7 +337,6 @@ export async function init(name: string): Promise<void> {
               clack.log.info(
                 "Will run migrations and seed against existing Supabase project.",
               );
-              // Mark for migrations/seed but skip project creation
               shouldProvisionSupabase = false;
               supabaseOrgId = undefined;
             } else {
@@ -478,11 +475,11 @@ export async function init(name: string): Promise<void> {
 
     const content = buildEnvContent(
       {
-        resend: resend,
-        stripe: stripe,
-        googleOAuth: googleOAuth,
-        s3: s3,
-        githubFeedback: githubFeedback,
+        resend,
+        stripe,
+        googleOAuth,
+        s3,
+        githubFeedback,
       },
       dbPort,
     );
@@ -558,7 +555,6 @@ export async function init(name: string): Promise<void> {
     );
   }
 
-  // "use existing project" path: supabaseDbUrl already set, skip creation
   if (!shouldProvisionSupabase && supabaseDbUrl) {
     await runStepSoft("Running migrations on Supabase", () =>
       runMigrations(projectDir, supabaseDbUrl),

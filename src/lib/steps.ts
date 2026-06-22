@@ -1,10 +1,9 @@
 import { existsSync } from "node:fs";
 import { run, runInherit } from "./exec.js";
 
-// Parse a |-separated table output from the Supabase CLI into rows of columns.
-// Skips the header row and divider lines (------|------).
+// Supabase CLI outputs plain ASCII |-separated tables. Skips header + dividers.
 function parseSupabaseTable(stdout: string): string[][] {
-  const SEP = "|"; // regular ASCII pipe used by supabase CLI
+  const SEP = "|";
   return stdout
     .split("\n")
     .filter((l) => l.includes(SEP) && !/^[-|+\s]+$/.test(l.trim()))
@@ -273,8 +272,7 @@ export async function createSupabaseProject(
       region,
     ]);
   } catch (err: unknown) {
-    // Extract the human-readable message from Supabase CLI's JSON stderr output
-    const raw = (err as { stderr?: string; stdout?: string })?.stderr ?? "";
+    const raw = (err as { stderr?: string })?.stderr ?? "";
     const match = raw.match(/"message"\s*:\s*"([^"]+)"/);
     throw new Error(
       match
@@ -282,13 +280,13 @@ export async function createSupabaseProject(
         : `supabase projects create failed: ${raw || String(err)}`,
     );
   }
-  // columns after empty-filter: [ORG_ID, REFERENCE_ID, NAME, REGION, CREATED_AT]
+  // Columns after empty-filter: ORG_ID | REFERENCE_ID | NAME | REGION | CREATED_AT
   const { stdout } = await run("supabase", ["projects", "list"]);
   const rows = parseSupabaseTable(stdout).filter((cols) => cols.length >= 3);
   const project = rows.find((cols) => cols[2] === name);
   if (!project)
     throw new Error(`Could not find ref for project "${name}" after creation.`);
-  return project[1]; // REFERENCE ID
+  return project[1];
 }
 
 export async function waitForSupabaseProject(
@@ -296,7 +294,6 @@ export async function waitForSupabaseProject(
   retries = 60,
   delayMs = 5000,
 ): Promise<void> {
-  // projects list has no STATUS column — poll via pg_isready instead
   const host = `db.${ref}.supabase.co`;
   for (let i = 0; i < retries; i++) {
     try {
