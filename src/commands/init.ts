@@ -303,55 +303,96 @@ export async function init(name: string): Promise<void> {
           }
 
           if (supabaseReady && supabaseOrgId) {
-            const projNameInput = await clack.text({
-              message: "Supabase project name:",
-              initialValue: name,
-              validate: (v) => (v.trim() ? undefined : "Name required"),
+            const USE_EXISTING = "__use_existing__";
+            const projectMode = await clack.select({
+              message: "Supabase project:",
+              options: [
+                {
+                  value: "create",
+                  label: "Create new project",
+                },
+                {
+                  value: USE_EXISTING,
+                  label: "Use existing project (enter ref + password)",
+                },
+              ],
             });
-            if (clack.isCancel(projNameInput)) abort("Aborted.");
-            supabaseProjName = projNameInput as string;
+            if (clack.isCancel(projectMode)) abort("Aborted.");
 
-            const SUPABASE_REGIONS = [
-              {
-                value: "ap-southeast-1",
-                label: "ap-southeast-1 (Singapore)",
-              },
-              {
-                value: "us-east-1",
-                label: "us-east-1 (US East N. Virginia)",
-              },
-              {
-                value: "us-west-1",
-                label: "us-west-1 (US West Oregon)",
-              },
-              {
-                value: "eu-west-1",
-                label: "eu-west-1 (EU West Ireland)",
-              },
-              {
-                value: "eu-central-1",
-                label: "eu-central-1 (EU Central Frankfurt)",
-              },
-              {
-                value: "ap-northeast-1",
-                label: "ap-northeast-1 (AP Northeast Tokyo)",
-              },
-              {
-                value: "ap-southeast-2",
-                label: "ap-southeast-2 (AP Southeast Sydney)",
-              },
-            ];
+            if (projectMode === USE_EXISTING) {
+              const existingRef = await clack.text({
+                message:
+                  "Project reference ID (from supabase.com/dashboard → project settings):",
+                validate: (v) => (v.trim() ? undefined : "Reference required"),
+              });
+              if (clack.isCancel(existingRef)) abort("Aborted.");
 
-            const regionInput = await clack.select({
-              message: "Supabase region:",
-              options: SUPABASE_REGIONS,
-              initialValue: "ap-southeast-1",
-            });
-            if (clack.isCancel(regionInput)) abort("Aborted.");
-            supabaseRegion = regionInput as string;
+              const existingPass = await clack.password({
+                message: "Database password for that project:",
+              });
+              if (clack.isCancel(existingPass)) abort("Aborted.");
 
-            supabaseDbPassword = randomBytes(24).toString("hex");
-            shouldProvisionSupabase = true;
+              supabaseDbUrl = buildSupabaseDbUrl(
+                (existingRef as string).trim(),
+                existingPass as string,
+              );
+              clack.log.info(
+                "Will run migrations and seed against existing Supabase project.",
+              );
+              // Mark for migrations/seed but skip project creation
+              shouldProvisionSupabase = false;
+              supabaseOrgId = undefined;
+            } else {
+              const projNameInput = await clack.text({
+                message: "Supabase project name:",
+                initialValue: name,
+                validate: (v) => (v.trim() ? undefined : "Name required"),
+              });
+              if (clack.isCancel(projNameInput)) abort("Aborted.");
+              supabaseProjName = projNameInput as string;
+
+              const SUPABASE_REGIONS = [
+                {
+                  value: "ap-southeast-1",
+                  label: "ap-southeast-1 (Singapore)",
+                },
+                {
+                  value: "us-east-1",
+                  label: "us-east-1 (US East N. Virginia)",
+                },
+                {
+                  value: "us-west-1",
+                  label: "us-west-1 (US West Oregon)",
+                },
+                {
+                  value: "eu-west-1",
+                  label: "eu-west-1 (EU West Ireland)",
+                },
+                {
+                  value: "eu-central-1",
+                  label: "eu-central-1 (EU Central Frankfurt)",
+                },
+                {
+                  value: "ap-northeast-1",
+                  label: "ap-northeast-1 (AP Northeast Tokyo)",
+                },
+                {
+                  value: "ap-southeast-2",
+                  label: "ap-southeast-2 (AP Southeast Sydney)",
+                },
+              ];
+
+              const regionInput = await clack.select({
+                message: "Supabase region:",
+                options: SUPABASE_REGIONS,
+                initialValue: "ap-southeast-1",
+              });
+              if (clack.isCancel(regionInput)) abort("Aborted.");
+              supabaseRegion = regionInput as string;
+
+              supabaseDbPassword = randomBytes(24).toString("hex");
+              shouldProvisionSupabase = true;
+            }
           }
         }
       }
@@ -515,6 +556,20 @@ export async function init(name: string): Promise<void> {
     await runStep("Creating admin user", () =>
       seedAdmin(projectDir, localEmail, localPw),
     );
+  }
+
+  // "use existing project" path: supabaseDbUrl already set, skip creation
+  if (!shouldProvisionSupabase && supabaseDbUrl) {
+    await runStepSoft("Running migrations on Supabase", () =>
+      runMigrations(projectDir, supabaseDbUrl),
+    );
+    if (adminEmail && adminPassword) {
+      const e = adminEmail;
+      const p = adminPassword;
+      await runStepSoft("Seeding admin on Supabase", () =>
+        seedAdmin(projectDir, e, p, supabaseDbUrl),
+      );
+    }
   }
 
   if (shouldProvisionSupabase && supabaseOrgId && supabaseDbPassword) {

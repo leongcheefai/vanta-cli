@@ -229,13 +229,21 @@ export async function createSupabaseOrg(name: string): Promise<string> {
   // diff rather than name-match (CLI may slugify or trim the display name).
   const before = await listSupabaseOrgs();
   const beforeIds = new Set(before.map((o) => o.id));
-  await run(
-    "supabase",
-    ["orgs", "create", name],
-    undefined,
-    undefined,
-    `${name}\n`,
-  );
+  try {
+    await run(
+      "supabase",
+      ["orgs", "create", name],
+      undefined,
+      undefined,
+      `${name}\n`,
+    );
+  } catch (err: unknown) {
+    const raw = (err as { stderr?: string })?.stderr ?? "";
+    const match = raw.match(/"message"\s*:\s*"([^"]+)"/);
+    throw new Error(
+      match ? match[1] : `supabase orgs create failed: ${raw || String(err)}`,
+    );
+  }
   // Find the org that wasn't in the before-snapshot.
   const after = await listSupabaseOrgs();
   const newOrg = after.find((o) => !beforeIds.has(o.id));
@@ -252,17 +260,28 @@ export async function createSupabaseProject(
   password: string,
   region: string,
 ): Promise<string> {
-  await run("supabase", [
-    "projects",
-    "create",
-    name,
-    "--org-id",
-    orgId,
-    "--db-password",
-    password,
-    "--region",
-    region,
-  ]);
+  try {
+    await run("supabase", [
+      "projects",
+      "create",
+      name,
+      "--org-id",
+      orgId,
+      "--db-password",
+      password,
+      "--region",
+      region,
+    ]);
+  } catch (err: unknown) {
+    // Extract the human-readable message from Supabase CLI's JSON stderr output
+    const raw = (err as { stderr?: string; stdout?: string })?.stderr ?? "";
+    const match = raw.match(/"message"\s*:\s*"([^"]+)"/);
+    throw new Error(
+      match
+        ? match[1]
+        : `supabase projects create failed: ${raw || String(err)}`,
+    );
+  }
   // columns after empty-filter: [ORG_ID, REFERENCE_ID, NAME, REGION, CREATED_AT]
   const { stdout } = await run("supabase", ["projects", "list"]);
   const rows = parseSupabaseTable(stdout).filter((cols) => cols.length >= 3);
