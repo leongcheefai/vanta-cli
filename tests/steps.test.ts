@@ -367,11 +367,13 @@ const ORGS_TABLE = [
   " org-2   | Beta Inc ",
 ].join("\n");
 
+// Real format: LINKED(empty) | ORG_ID | REFERENCE_ID | NAME | REGION | CREATED_AT
+// Empty LINKED column filtered out → cols[0]=ORG_ID, cols[1]=REF, cols[2]=NAME
 const PROJECTS_TABLE = [
-  " ID                 | NAME       | REGION          | STATUS         ",
-  "--------------------|------------|-----------------|----------------",
-  " abcdefghijklmnop   | my-project | ap-southeast-1  | ACTIVE_HEALTHY ",
-  " zyxwvutsrqponml   | other-proj | us-east-1       | COMING_UP      ",
+  " LINKED | ORG ID   | REFERENCE ID       | NAME       | REGION         | CREATED AT (UTC)    ",
+  "--------|----------|--------------------|------------|----------------|---------------------",
+  "        | org-aaa  | abcdefghijklmnop   | my-project | ap-southeast-1 | 2026-01-01 00:00:00 ",
+  "        | org-bbb  | zyxwvutsrqponml    | other-proj | us-east-1      | 2026-01-02 00:00:00 ",
 ].join("\n");
 
 describe("listSupabaseOrgs", () => {
@@ -471,45 +473,34 @@ describe("createSupabaseProject", () => {
 });
 
 describe("waitForSupabaseProject", () => {
-  it("resolves immediately when project is ACTIVE_HEALTHY", async () => {
-    vi.mocked(run).mockResolvedValue({ stdout: PROJECTS_TABLE, stderr: "" });
+  it("resolves when pg_isready succeeds on first try", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
     await expect(
       waitForSupabaseProject("abcdefghijklmnop", 3, 0),
     ).resolves.toBeUndefined();
+    expect(run).toHaveBeenCalledWith("pg_isready", [
+      "-h",
+      "db.abcdefghijklmnop.supabase.co",
+      "-p",
+      "5432",
+      "-U",
+      "postgres",
+    ]);
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it("polls until ACTIVE_HEALTHY", async () => {
-    const comingUpTable = [
-      " ID                 | NAME       | STATUS    ",
-      "--------------------|------------|------------",
-      " abcdefghijklmnop   | my-project | COMING_UP ",
-    ].join("\n");
+  it("polls until pg_isready succeeds", async () => {
     vi.mocked(run)
-      .mockResolvedValueOnce({ stdout: comingUpTable, stderr: "" })
-      .mockResolvedValueOnce({ stdout: PROJECTS_TABLE, stderr: "" });
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockResolvedValueOnce({ stdout: "", stderr: "" });
     await expect(
       waitForSupabaseProject("abcdefghijklmnop", 5, 0),
     ).resolves.toBeUndefined();
     expect(run).toHaveBeenCalledTimes(2);
   });
 
-  it("retries on transient CLI error and eventually resolves", async () => {
-    vi.mocked(run)
-      .mockRejectedValueOnce(new Error("network error"))
-      .mockResolvedValueOnce({ stdout: PROJECTS_TABLE, stderr: "" });
-    await expect(
-      waitForSupabaseProject("abcdefghijklmnop", 5, 0),
-    ).resolves.toBeUndefined();
-  });
-
-  it("throws when project never becomes ready", async () => {
-    const comingUpTable = [
-      " ID                 | NAME       | STATUS    ",
-      "--------------------|------------|------------",
-      " abcdefghijklmnop   | my-project | COMING_UP ",
-    ].join("\n");
-    vi.mocked(run).mockResolvedValue({ stdout: comingUpTable, stderr: "" });
+  it("throws when pg_isready never succeeds within retries", async () => {
+    vi.mocked(run).mockRejectedValue(new Error("connection refused"));
     await expect(
       waitForSupabaseProject("abcdefghijklmnop", 2, 0),
     ).rejects.toThrow("Supabase project did not become ready in time");

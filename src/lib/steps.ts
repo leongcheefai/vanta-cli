@@ -263,15 +263,13 @@ export async function createSupabaseProject(
     "--region",
     region,
   ]);
-  // List projects and find the newly created one by name to get its ref.
+  // columns after empty-filter: [ORG_ID, REFERENCE_ID, NAME, REGION, CREATED_AT]
   const { stdout } = await run("supabase", ["projects", "list"]);
-  const rows = parseSupabaseTable(stdout).filter(
-    (cols) => cols.length >= 2 && cols[0] && cols[1],
-  );
-  const project = rows.find((cols) => cols[1] === name);
+  const rows = parseSupabaseTable(stdout).filter((cols) => cols.length >= 3);
+  const project = rows.find((cols) => cols[2] === name);
   if (!project)
     throw new Error(`Could not find ref for project "${name}" after creation.`);
-  return project[0];
+  return project[1]; // REFERENCE ID
 }
 
 export async function waitForSupabaseProject(
@@ -279,16 +277,14 @@ export async function waitForSupabaseProject(
   retries = 60,
   delayMs = 5000,
 ): Promise<void> {
+  // projects list has no STATUS column — poll via pg_isready instead
+  const host = `db.${ref}.supabase.co`;
   for (let i = 0; i < retries; i++) {
     try {
-      const { stdout } = await run("supabase", ["projects", "list"]);
-      const rows = parseSupabaseTable(stdout);
-      const project = rows.find((cols) => cols[0] === ref);
-      // Status is the last non-empty column
-      const status = project?.findLast((c) => c.length > 0);
-      if (status === "ACTIVE_HEALTHY") return;
+      await run("pg_isready", ["-h", host, "-p", "5432", "-U", "postgres"]);
+      return;
     } catch {
-      // transient — keep polling
+      // not ready yet
     }
     await new Promise((r) => setTimeout(r, delayMs));
   }
