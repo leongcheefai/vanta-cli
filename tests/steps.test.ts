@@ -132,13 +132,14 @@ describe("runMigrations", () => {
 
   it("passes DATABASE_URL env when databaseUrl provided", async () => {
     vi.mocked(run).mockResolvedValue({ stdout: "", stderr: "" });
-    await runMigrations("/some/project", "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres");
-    expect(run).toHaveBeenCalledWith(
-      "pnpm",
-      ["db:migrate"],
+    await runMigrations(
       "/some/project",
-      { DATABASE_URL: "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres" },
+      "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres",
     );
+    expect(run).toHaveBeenCalledWith("pnpm", ["db:migrate"], "/some/project", {
+      DATABASE_URL:
+        "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres",
+    });
   });
 });
 
@@ -166,7 +167,10 @@ describe("seedAdmin", () => {
       "pnpm",
       ["db:seed", "--email", "admin@example.com", "--password", "supersecret"],
       "/some/project",
-      { DATABASE_URL: "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres" },
+      {
+        DATABASE_URL:
+          "postgresql://postgres:pass@db.ref.supabase.co:5432/postgres",
+      },
     );
   });
 });
@@ -395,7 +399,12 @@ describe("createSupabaseProject", () => {
       stderr: "",
     });
     await expect(
-      createSupabaseProject("org-1", "my-project", "secretpass", "ap-southeast-1"),
+      createSupabaseProject(
+        "org-1",
+        "my-project",
+        "secretpass",
+        "ap-southeast-1",
+      ),
     ).resolves.toBe("abcdefghijklmnop");
     expect(run).toHaveBeenCalledWith("supabase", [
       "projects",
@@ -462,9 +471,9 @@ describe("waitForSupabaseProject", () => {
       stdout: JSON.stringify({ status: "COMING_UP" }),
       stderr: "",
     });
-    await expect(
-      waitForSupabaseProject("ref123", 2, 0),
-    ).rejects.toThrow("Supabase project did not become ready in time");
+    await expect(waitForSupabaseProject("ref123", 2, 0)).rejects.toThrow(
+      "Supabase project did not become ready in time",
+    );
   });
 });
 

@@ -271,9 +271,7 @@ export async function init(name: string): Promise<void> {
               });
               if (clack.isCancel(newOrgName)) abort("Aborted.");
               try {
-                supabaseOrgId = await createSupabaseOrg(
-                  newOrgName as string,
-                );
+                supabaseOrgId = await createSupabaseOrg(newOrgName as string);
               } catch (err: unknown) {
                 clack.log.warn(
                   `Failed to create org: ${err instanceof Error ? err.message : String(err)}`,
@@ -493,35 +491,41 @@ export async function init(name: string): Promise<void> {
     }
     adminPassword = pw;
 
+    const localEmail = adminEmail as string;
+    const localPw = pw;
     await runStep("Creating admin user", () =>
-      seedAdmin(projectDir, adminEmail!, adminPassword!),
+      seedAdmin(projectDir, localEmail, localPw),
     );
   }
 
   if (shouldProvisionSupabase && supabaseOrgId && supabaseDbPassword) {
-    let ref: string | undefined;
+    const orgId = supabaseOrgId;
+    const dbPassword = supabaseDbPassword;
+    let ref = "";
     try {
       await runStep(
         `Creating Supabase project "${supabaseProjName}"`,
         async () => {
           ref = await createSupabaseProject(
-            supabaseOrgId!,
+            orgId,
             supabaseProjName,
-            supabaseDbPassword!,
+            dbPassword,
             supabaseRegion,
           );
         },
       );
       await runStep("Waiting for Supabase project to be ready", () =>
-        waitForSupabaseProject(ref!),
+        waitForSupabaseProject(ref),
       );
-      supabaseDbUrl = buildSupabaseDbUrl(ref!, supabaseDbPassword);
+      supabaseDbUrl = buildSupabaseDbUrl(ref, dbPassword);
       await runStep("Running migrations on Supabase", () =>
         runMigrations(projectDir, supabaseDbUrl),
       );
       if (adminEmail && adminPassword) {
+        const e = adminEmail;
+        const p = adminPassword;
         await runStep("Seeding admin on Supabase", () =>
-          seedAdmin(projectDir, adminEmail!, adminPassword!, supabaseDbUrl),
+          seedAdmin(projectDir, e, p, supabaseDbUrl),
         );
       }
     } catch (err: unknown) {

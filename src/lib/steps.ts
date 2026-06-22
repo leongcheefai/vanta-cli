@@ -207,12 +207,7 @@ export async function listSupabaseOrgs(): Promise<
 }
 
 export async function createSupabaseOrg(name: string): Promise<string> {
-  const { stdout } = await run("supabase", [
-    "orgs",
-    "create",
-    name,
-    "--json",
-  ]);
+  const { stdout } = await run("supabase", ["orgs", "create", name, "--json"]);
   const org = JSON.parse(stdout) as { id: string };
   return org.id;
 }
@@ -237,7 +232,8 @@ export async function createSupabaseProject(
   ]);
   const project = JSON.parse(stdout) as { id?: string; ref?: string };
   const ref = project.ref ?? project.id;
-  if (!ref) throw new Error("Could not extract project ref from Supabase output.");
+  if (!ref)
+    throw new Error("Could not extract project ref from Supabase output.");
   return ref;
 }
 
