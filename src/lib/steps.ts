@@ -225,8 +225,10 @@ export async function listSupabaseOrgs(): Promise<
 }
 
 export async function createSupabaseOrg(name: string): Promise<string> {
-  // Pass name as positional arg; also pipe via stdin as fallback for
-  // interactive-only CLI versions that prompt for it.
+  // Snapshot existing org IDs before creation so we can find the new one by
+  // diff rather than name-match (CLI may slugify or trim the display name).
+  const before = await listSupabaseOrgs();
+  const beforeIds = new Set(before.map((o) => o.id));
   await run(
     "supabase",
     ["orgs", "create", name],
@@ -234,12 +236,14 @@ export async function createSupabaseOrg(name: string): Promise<string> {
     undefined,
     `${name}\n`,
   );
-  // Re-list to get the ID of the newly created org.
-  const orgs = await listSupabaseOrgs();
-  const org = orgs.find((o) => o.name === name);
-  if (!org)
-    throw new Error(`Created org "${name}" but could not find it in list.`);
-  return org.id;
+  // Find the org that wasn't in the before-snapshot.
+  const after = await listSupabaseOrgs();
+  const newOrg = after.find((o) => !beforeIds.has(o.id));
+  if (!newOrg)
+    throw new Error(
+      `Org "${name}" created in Supabase but could not detect it in list. Run "supabase orgs list" to verify.`,
+    );
+  return newOrg.id;
 }
 
 export async function createSupabaseProject(

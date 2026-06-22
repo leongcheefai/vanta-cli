@@ -394,27 +394,39 @@ describe("listSupabaseOrgs", () => {
 });
 
 describe("createSupabaseOrg", () => {
-  it("runs orgs create then re-lists to return new org id", async () => {
+  it("diffs before/after orgs list to return new org id", async () => {
+    const beforeTable = [
+      "      ID │ Name",
+      "──────────┼──────────",
+      "│ org-1 │ Acme Corp │",
+    ].join("\n");
+    const afterTable = [
+      "      ID │ Name",
+      "──────────┼──────────",
+      "│ org-1 │ Acme Corp │",
+      "│ org-new │ Beta Inc │",
+    ].join("\n");
     vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: beforeTable, stderr: "" }) // orgs list (before)
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // orgs create
-      .mockResolvedValueOnce({ stdout: ORGS_TABLE, stderr: "" }); // orgs list
-    await expect(createSupabaseOrg("Acme Corp")).resolves.toBe("org-1");
+      .mockResolvedValueOnce({ stdout: afterTable, stderr: "" }); // orgs list (after)
+    await expect(createSupabaseOrg("Beta Inc")).resolves.toBe("org-new");
     expect(run).toHaveBeenCalledWith(
       "supabase",
-      ["orgs", "create", "Acme Corp"],
+      ["orgs", "create", "Beta Inc"],
       undefined,
       undefined,
-      "Acme Corp\n",
+      "Beta Inc\n",
     );
-    expect(run).toHaveBeenCalledWith("supabase", ["orgs", "list"]);
   });
 
-  it("throws when newly created org cannot be found in list", async () => {
+  it("throws when no new org appears in list after creation", async () => {
     vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: ORGS_TABLE, stderr: "" }) // orgs list (before)
       .mockResolvedValueOnce({ stdout: "", stderr: "" }) // orgs create
-      .mockResolvedValueOnce({ stdout: ORGS_TABLE, stderr: "" }); // orgs list
+      .mockResolvedValueOnce({ stdout: ORGS_TABLE, stderr: "" }); // orgs list (after — same)
     await expect(createSupabaseOrg("Ghost Org")).rejects.toThrow(
-      'Created org "Ghost Org" but could not find it in list.',
+      "could not detect it in list",
     );
   });
 });
