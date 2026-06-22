@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("fs", () => ({ existsSync: vi.fn(), readFileSync: vi.fn() }));
+vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("../src/lib/exec.js", () => ({
   run: vi.fn(),
   runInherit: vi.fn(),
 }));
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { run, runInherit } from "../src/lib/exec.js";
 import {
   buildSupabaseDbUrl,
@@ -28,17 +28,8 @@ import {
   waitForSupabaseProject,
 } from "../src/lib/steps.js";
 
-const mockFetch = vi.fn();
-
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal("fetch", mockFetch);
-  // default: token file readable
-  vi.mocked(readFileSync).mockReturnValue("test-supabase-token");
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
 });
 
 describe("cloneRepo", () => {
@@ -368,62 +359,70 @@ describe("installSupabaseCli", () => {
   });
 });
 
-function mockApiResponse(data: unknown, ok = true) {
-  return Promise.resolve({
-    ok,
-    status: ok ? 200 : 400,
-    json: () => Promise.resolve(data),
-    text: () => Promise.resolve(JSON.stringify(data)),
-  });
-}
+const ORGS_TABLE = [
+  "      ID │ Name",
+  "──────────┼──────────",
+  " org-1 │ Acme Corp",
+  " org-2 │ Beta Inc",
+].join("\n");
+
+const PROJECTS_TABLE = [
+  "      ID │ Name │ Region │ Status",
+  "──────────────────────┼────────────┼─────────────────┼──────────────",
+  " abcdefghijklmnop │ my-project │ ap-southeast-1 │ ACTIVE_HEALTHY",
+  " zyxwvutsrqponml │ other-proj │ us-east-1 │ COMING_UP",
+].join("\n");
 
 describe("listSupabaseOrgs", () => {
-  it("calls GET /organizations and returns id+name pairs", async () => {
-    mockFetch.mockReturnValueOnce(
-      mockApiResponse([
-        { id: "org-1", name: "Acme", billing_email: "a@b.com" },
-        { id: "org-2", name: "Beta", billing_email: "c@d.com" },
-      ]),
-    );
+  it("parses supabase orgs list table and returns id+name pairs", async () => {
+    vi.mocked(run).mockResolvedValue({ stdout: ORGS_TABLE, stderr: "" });
     await expect(listSupabaseOrgs()).resolves.toEqual([
-      { id: "org-1", name: "Acme" },
-      { id: "org-2", name: "Beta" },
+      { id: "org-1", name: "Acme Corp" },
+      { id: "org-2", name: "Beta Inc" },
     ]);
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.supabase.com/v1/organizations",
-      expect.objectContaining({ method: "GET" }),
-    );
+    expect(run).toHaveBeenCalledWith("supabase", ["orgs", "list"]);
   });
 
-  it("throws when API returns non-ok status", async () => {
-    mockFetch.mockReturnValueOnce(
-      mockApiResponse({ message: "Unauthorized" }, false),
-    );
-    await expect(listSupabaseOrgs()).rejects.toThrow("400");
+  it("returns empty array when table has no data rows", async () => {
+    vi.mocked(run).mockResolvedValue({
+      stdout: "      ID │ Name\n──────────┼──────────",
+      stderr: "",
+    });
+    await expect(listSupabaseOrgs()).resolves.toEqual([]);
   });
 });
 
 describe("createSupabaseOrg", () => {
-  it("calls POST /organizations with name and returns id", async () => {
-    mockFetch.mockReturnValueOnce(
-      mockApiResponse({ id: "new-org-id", name: "My Org" }),
+  it("runs orgs create then re-lists to return new org id", async () => {
+    vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // orgs create
+      .mockResolvedValueOnce({ stdout: ORGS_TABLE, stderr: "" }); // orgs list
+    await expect(createSupabaseOrg("Acme Corp")).resolves.toBe("org-1");
+    expect(run).toHaveBeenCalledWith(
+      "supabase",
+      ["orgs", "create", "Acme Corp"],
+      undefined,
+      undefined,
+      "Acme Corp\n",
     );
-    await expect(createSupabaseOrg("My Org")).resolves.toBe("new-org-id");
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.supabase.com/v1/organizations",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ name: "My Org" }),
-      }),
+    expect(run).toHaveBeenCalledWith("supabase", ["orgs", "list"]);
+  });
+
+  it("throws when newly created org cannot be found in list", async () => {
+    vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // orgs create
+      .mockResolvedValueOnce({ stdout: ORGS_TABLE, stderr: "" }); // orgs list
+    await expect(createSupabaseOrg("Ghost Org")).rejects.toThrow(
+      'Created org "Ghost Org" but could not find it in list.',
     );
   });
 });
 
 describe("createSupabaseProject", () => {
-  it("calls POST /projects with correct body and returns id", async () => {
-    mockFetch.mockReturnValueOnce(
-      mockApiResponse({ id: "abcdefghijklmnop", name: "my-project" }),
-    );
+  it("runs projects create then lists to return ref", async () => {
+    vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // projects create
+      .mockResolvedValueOnce({ stdout: PROJECTS_TABLE, stderr: "" }); // projects list
     await expect(
       createSupabaseProject(
         "org-1",
@@ -432,66 +431,75 @@ describe("createSupabaseProject", () => {
         "ap-southeast-1",
       ),
     ).resolves.toBe("abcdefghijklmnop");
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.supabase.com/v1/projects",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          name: "my-project",
-          organization_id: "org-1",
-          db_pass: "secretpass",
-          region: "ap-southeast-1",
-          plan: "free",
-        }),
-      }),
-    );
+    expect(run).toHaveBeenCalledWith("supabase", [
+      "projects",
+      "create",
+      "my-project",
+      "--org-id",
+      "org-1",
+      "--db-password",
+      "secretpass",
+      "--region",
+      "ap-southeast-1",
+    ]);
+    expect(run).toHaveBeenCalledWith("supabase", ["projects", "list"]);
   });
 
-  it("throws when API returns error", async () => {
-    mockFetch.mockReturnValueOnce(
-      mockApiResponse({ message: "Bad Request" }, false),
-    );
+  it("throws when project ref cannot be found after creation", async () => {
+    vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: "", stderr: "" }) // projects create
+      .mockResolvedValueOnce({ stdout: PROJECTS_TABLE, stderr: "" }); // projects list
     await expect(
-      createSupabaseProject("org-1", "my-project", "secretpass", "us-east-1"),
-    ).rejects.toThrow("400");
+      createSupabaseProject("org-1", "unknown", "pass", "us-east-1"),
+    ).rejects.toThrow(
+      'Could not find ref for project "unknown" after creation.',
+    );
   });
 });
 
 describe("waitForSupabaseProject", () => {
   it("resolves immediately when project is ACTIVE_HEALTHY", async () => {
-    mockFetch.mockReturnValueOnce(
-      mockApiResponse({ status: "ACTIVE_HEALTHY" }),
-    );
+    vi.mocked(run).mockResolvedValue({ stdout: PROJECTS_TABLE, stderr: "" });
     await expect(
-      waitForSupabaseProject("ref123", 3, 0),
+      waitForSupabaseProject("abcdefghijklmnop", 3, 0),
     ).resolves.toBeUndefined();
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("polls until ACTIVE_HEALTHY", async () => {
-    mockFetch
-      .mockReturnValueOnce(mockApiResponse({ status: "COMING_UP" }))
-      .mockReturnValueOnce(mockApiResponse({ status: "ACTIVE_HEALTHY" }));
+    const comingUpTable = [
+      "      ID │ Name │ Status",
+      "──────────────────────┼────────────┼──────────────",
+      " abcdefghijklmnop │ my-project │ COMING_UP",
+    ].join("\n");
+    vi.mocked(run)
+      .mockResolvedValueOnce({ stdout: comingUpTable, stderr: "" })
+      .mockResolvedValueOnce({ stdout: PROJECTS_TABLE, stderr: "" });
     await expect(
-      waitForSupabaseProject("ref123", 5, 0),
+      waitForSupabaseProject("abcdefghijklmnop", 5, 0),
     ).resolves.toBeUndefined();
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
-  it("retries on transient API error and eventually resolves", async () => {
-    mockFetch
-      .mockReturnValueOnce(mockApiResponse({ message: "error" }, false))
-      .mockReturnValueOnce(mockApiResponse({ status: "ACTIVE_HEALTHY" }));
+  it("retries on transient CLI error and eventually resolves", async () => {
+    vi.mocked(run)
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce({ stdout: PROJECTS_TABLE, stderr: "" });
     await expect(
-      waitForSupabaseProject("ref123", 5, 0),
+      waitForSupabaseProject("abcdefghijklmnop", 5, 0),
     ).resolves.toBeUndefined();
   });
 
   it("throws when project never becomes ready", async () => {
-    mockFetch.mockReturnValue(mockApiResponse({ status: "COMING_UP" }));
-    await expect(waitForSupabaseProject("ref123", 2, 0)).rejects.toThrow(
-      "Supabase project did not become ready in time",
-    );
+    const comingUpTable = [
+      "      ID │ Name │ Status",
+      "──────────────────────┼────────────┼──────────────",
+      " abcdefghijklmnop │ my-project │ COMING_UP",
+    ].join("\n");
+    vi.mocked(run).mockResolvedValue({ stdout: comingUpTable, stderr: "" });
+    await expect(
+      waitForSupabaseProject("abcdefghijklmnop", 2, 0),
+    ).rejects.toThrow("Supabase project did not become ready in time");
   });
 });
 
