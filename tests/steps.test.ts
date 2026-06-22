@@ -359,19 +359,19 @@ describe("installSupabaseCli", () => {
   });
 });
 
-// Supabase CLI wraps rows with │ borders: │ col1 │ col2 │
+// Supabase CLI uses plain ASCII | separator, no border pipes
 const ORGS_TABLE = [
-  "      ID │ Name",
-  "──────────┼──────────",
-  "│ org-1 │ Acme Corp │",
-  "│ org-2 │ Beta Inc │",
+  " ID      | NAME     ",
+  "---------|----------",
+  " org-1   | Acme Corp",
+  " org-2   | Beta Inc ",
 ].join("\n");
 
 const PROJECTS_TABLE = [
-  "      ID │ Name │ Region │ Status",
-  "──────────────────────┼────────────┼─────────────────┼──────────────",
-  "│ abcdefghijklmnop │ my-project │ ap-southeast-1 │ ACTIVE_HEALTHY │",
-  "│ zyxwvutsrqponml │ other-proj │ us-east-1 │ COMING_UP │",
+  " ID                 | NAME       | REGION          | STATUS         ",
+  "--------------------|------------|-----------------|----------------",
+  " abcdefghijklmnop   | my-project | ap-southeast-1  | ACTIVE_HEALTHY ",
+  " zyxwvutsrqponml   | other-proj | us-east-1       | COMING_UP      ",
 ].join("\n");
 
 describe("listSupabaseOrgs", () => {
@@ -386,7 +386,7 @@ describe("listSupabaseOrgs", () => {
 
   it("returns empty array when table has no data rows", async () => {
     vi.mocked(run).mockResolvedValue({
-      stdout: "      ID │ Name\n──────────┼──────────",
+      stdout: " ID | NAME\n----|-----",
       stderr: "",
     });
     await expect(listSupabaseOrgs()).resolves.toEqual([]);
@@ -396,15 +396,15 @@ describe("listSupabaseOrgs", () => {
 describe("createSupabaseOrg", () => {
   it("diffs before/after orgs list to return new org id", async () => {
     const beforeTable = [
-      "      ID │ Name",
-      "──────────┼──────────",
-      "│ org-1 │ Acme Corp │",
+      " ID      | NAME     ",
+      "---------|----------",
+      " org-1   | Acme Corp",
     ].join("\n");
     const afterTable = [
-      "      ID │ Name",
-      "──────────┼──────────",
-      "│ org-1 │ Acme Corp │",
-      "│ org-new │ Beta Inc │",
+      " ID      | NAME     ",
+      "---------|----------",
+      " org-1   | Acme Corp",
+      " org-new | Beta Inc ",
     ].join("\n");
     vi.mocked(run)
       .mockResolvedValueOnce({ stdout: beforeTable, stderr: "" }) // orgs list (before)
@@ -481,9 +481,9 @@ describe("waitForSupabaseProject", () => {
 
   it("polls until ACTIVE_HEALTHY", async () => {
     const comingUpTable = [
-      "      ID │ Name │ Status",
-      "──────────────────────┼────────────┼──────────────",
-      "│ abcdefghijklmnop │ my-project │ COMING_UP │",
+      " ID                 | NAME       | STATUS    ",
+      "--------------------|------------|------------",
+      " abcdefghijklmnop   | my-project | COMING_UP ",
     ].join("\n");
     vi.mocked(run)
       .mockResolvedValueOnce({ stdout: comingUpTable, stderr: "" })
@@ -505,9 +505,9 @@ describe("waitForSupabaseProject", () => {
 
   it("throws when project never becomes ready", async () => {
     const comingUpTable = [
-      "      ID │ Name │ Status",
-      "──────────────────────┼────────────┼──────────────",
-      "│ abcdefghijklmnop │ my-project │ COMING_UP │",
+      " ID                 | NAME       | STATUS    ",
+      "--------------------|------------|------------",
+      " abcdefghijklmnop   | my-project | COMING_UP ",
     ].join("\n");
     vi.mocked(run).mockResolvedValue({ stdout: comingUpTable, stderr: "" });
     await expect(

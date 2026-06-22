@@ -1,14 +1,14 @@
 import { existsSync } from "node:fs";
 import { run, runInherit } from "./exec.js";
 
-// Parse a │-separated table output from the Supabase CLI into rows of columns.
-// Skips the header row and divider lines.
+// Parse a |-separated table output from the Supabase CLI into rows of columns.
+// Skips the header row and divider lines (------|------).
 function parseSupabaseTable(stdout: string): string[][] {
-  const SEP = "│"; // │ U+2502 box-drawing character
+  const SEP = "|"; // regular ASCII pipe used by supabase CLI
   return stdout
     .split("\n")
-    .filter((l) => l.includes(SEP) && !/^[─┼\s│]+$/.test(l.trim()))
-    .slice(1) // drop header row (ID │ Name │ ...)
+    .filter((l) => l.includes(SEP) && !/^[-|+\s]+$/.test(l.trim()))
+    .slice(1) // drop header row (ID | NAME | ...)
     .map((l) =>
       l
         .split(SEP)
