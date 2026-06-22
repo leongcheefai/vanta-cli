@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("fs", () => ({ existsSync: vi.fn() }));
+vi.mock("fs", () => ({ existsSync: vi.fn(), readFileSync: vi.fn() }));
 vi.mock("../src/lib/exec.js", () => ({
   run: vi.fn(),
   runInherit: vi.fn(),
 }));
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { run, runInherit } from "../src/lib/exec.js";
 import {
   buildSupabaseDbUrl,
@@ -28,8 +28,17 @@ import {
   waitForSupabaseProject,
 } from "../src/lib/steps.js";
 
+const mockFetch = vi.fn();
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("fetch", mockFetch);
+  // default: token file readable
+  vi.mocked(readFileSync).mockReturnValue("test-supabase-token");
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("cloneRepo", () => {
@@ -359,45 +368,62 @@ describe("installSupabaseCli", () => {
   });
 });
 
+function mockApiResponse(data: unknown, ok = true) {
+  return Promise.resolve({
+    ok,
+    status: ok ? 200 : 400,
+    json: () => Promise.resolve(data),
+    text: () => Promise.resolve(JSON.stringify(data)),
+  });
+}
+
 describe("listSupabaseOrgs", () => {
-  it("returns parsed org list", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify([
-        { id: "org-1", name: "Acme" },
-        { id: "org-2", name: "Beta" },
+  it("calls GET /organizations and returns id+name pairs", async () => {
+    mockFetch.mockReturnValueOnce(
+      mockApiResponse([
+        { id: "org-1", name: "Acme", billing_email: "a@b.com" },
+        { id: "org-2", name: "Beta", billing_email: "c@d.com" },
       ]),
-      stderr: "",
-    });
+    );
     await expect(listSupabaseOrgs()).resolves.toEqual([
       { id: "org-1", name: "Acme" },
       { id: "org-2", name: "Beta" },
     ]);
-    expect(run).toHaveBeenCalledWith("supabase", ["orgs", "list", "--json"]);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://api.supabase.com/v1/organizations",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("throws when API returns non-ok status", async () => {
+    mockFetch.mockReturnValueOnce(
+      mockApiResponse({ message: "Unauthorized" }, false),
+    );
+    await expect(listSupabaseOrgs()).rejects.toThrow("400");
   });
 });
 
 describe("createSupabaseOrg", () => {
-  it("returns org id from JSON output", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify({ id: "new-org-id", name: "My Org" }),
-      stderr: "",
-    });
+  it("calls POST /organizations with name and returns id", async () => {
+    mockFetch.mockReturnValueOnce(
+      mockApiResponse({ id: "new-org-id", name: "My Org" }),
+    );
     await expect(createSupabaseOrg("My Org")).resolves.toBe("new-org-id");
-    expect(run).toHaveBeenCalledWith("supabase", [
-      "orgs",
-      "create",
-      "My Org",
-      "--json",
-    ]);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://api.supabase.com/v1/organizations",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "My Org" }),
+      }),
+    );
   });
 });
 
 describe("createSupabaseProject", () => {
-  it("returns project ref from JSON output (ref field)", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify({ ref: "abcdefghijklmnop", name: "my-project" }),
-      stderr: "",
-    });
+  it("calls POST /projects with correct body and returns id", async () => {
+    mockFetch.mockReturnValueOnce(
+      mockApiResponse({ id: "abcdefghijklmnop", name: "my-project" }),
+    );
     await expect(
       createSupabaseProject(
         "org-1",
@@ -406,71 +432,63 @@ describe("createSupabaseProject", () => {
         "ap-southeast-1",
       ),
     ).resolves.toBe("abcdefghijklmnop");
-    expect(run).toHaveBeenCalledWith("supabase", [
-      "projects",
-      "create",
-      "my-project",
-      "--org-id",
-      "org-1",
-      "--db-password",
-      "secretpass",
-      "--region",
-      "ap-southeast-1",
-      "--json",
-    ]);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://api.supabase.com/v1/projects",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "my-project",
+          organization_id: "org-1",
+          db_pass: "secretpass",
+          region: "ap-southeast-1",
+          plan: "free",
+        }),
+      }),
+    );
   });
 
-  it("falls back to id field when ref is absent", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify({ id: "abcdefghijklmnop" }),
-      stderr: "",
-    });
+  it("throws when API returns error", async () => {
+    mockFetch.mockReturnValueOnce(
+      mockApiResponse({ message: "Bad Request" }, false),
+    );
     await expect(
       createSupabaseProject("org-1", "my-project", "secretpass", "us-east-1"),
-    ).resolves.toBe("abcdefghijklmnop");
-  });
-
-  it("throws when neither ref nor id present", async () => {
-    vi.mocked(run).mockResolvedValue({ stdout: "{}", stderr: "" });
-    await expect(
-      createSupabaseProject("org-1", "my-project", "secretpass", "us-east-1"),
-    ).rejects.toThrow("Could not extract project ref");
+    ).rejects.toThrow("400");
   });
 });
 
 describe("waitForSupabaseProject", () => {
   it("resolves immediately when project is ACTIVE_HEALTHY", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify({ status: "ACTIVE_HEALTHY" }),
-      stderr: "",
-    });
+    mockFetch.mockReturnValueOnce(
+      mockApiResponse({ status: "ACTIVE_HEALTHY" }),
+    );
     await expect(
       waitForSupabaseProject("ref123", 3, 0),
     ).resolves.toBeUndefined();
-    expect(run).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("polls until ACTIVE_HEALTHY", async () => {
-    vi.mocked(run)
-      .mockResolvedValueOnce({
-        stdout: JSON.stringify({ status: "COMING_UP" }),
-        stderr: "",
-      })
-      .mockResolvedValueOnce({
-        stdout: JSON.stringify({ status: "ACTIVE_HEALTHY" }),
-        stderr: "",
-      });
+    mockFetch
+      .mockReturnValueOnce(mockApiResponse({ status: "COMING_UP" }))
+      .mockReturnValueOnce(mockApiResponse({ status: "ACTIVE_HEALTHY" }));
     await expect(
       waitForSupabaseProject("ref123", 5, 0),
     ).resolves.toBeUndefined();
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on transient API error and eventually resolves", async () => {
+    mockFetch
+      .mockReturnValueOnce(mockApiResponse({ message: "error" }, false))
+      .mockReturnValueOnce(mockApiResponse({ status: "ACTIVE_HEALTHY" }));
+    await expect(
+      waitForSupabaseProject("ref123", 5, 0),
+    ).resolves.toBeUndefined();
   });
 
   it("throws when project never becomes ready", async () => {
-    vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify({ status: "COMING_UP" }),
-      stderr: "",
-    });
+    mockFetch.mockReturnValue(mockApiResponse({ status: "COMING_UP" }));
     await expect(waitForSupabaseProject("ref123", 2, 0)).rejects.toThrow(
       "Supabase project did not become ready in time",
     );

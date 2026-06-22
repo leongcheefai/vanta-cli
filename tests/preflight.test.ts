@@ -282,25 +282,15 @@ describe("checkSupabaseInstalled", () => {
 });
 
 describe("checkSupabaseLoggedIn", () => {
-  it("resolves when orgs list returns array", async () => {
+  it("resolves when orgs list command succeeds", async () => {
     vi.mocked(run).mockResolvedValue({
-      stdout: JSON.stringify([{ id: "org-1", name: "My Org" }]),
+      stdout: "      ID │ Name\n──────┼──────\n org-1 │ My Org",
       stderr: "",
     });
     await expect(checkSupabaseLoggedIn()).resolves.toBeUndefined();
   });
-  it("resolves when orgs list returns empty array (no orgs but logged in)", async () => {
-    vi.mocked(run).mockResolvedValue({ stdout: "[]", stderr: "" });
-    await expect(checkSupabaseLoggedIn()).resolves.toBeUndefined();
-  });
-  it("throws when command fails", async () => {
+  it("throws when command fails (not logged in)", async () => {
     vi.mocked(run).mockRejectedValue(new Error("not logged in"));
-    await expect(checkSupabaseLoggedIn()).rejects.toThrow(
-      "Not logged into Supabase",
-    );
-  });
-  it("throws when output is not a JSON array", async () => {
-    vi.mocked(run).mockResolvedValue({ stdout: "not json", stderr: "" });
     await expect(checkSupabaseLoggedIn()).rejects.toThrow(
       "Not logged into Supabase",
     );

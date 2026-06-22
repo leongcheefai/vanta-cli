@@ -134,9 +134,7 @@ export async function checkSupabaseInstalled(): Promise<void> {
 
 export async function checkSupabaseLoggedIn(): Promise<void> {
   try {
-    const { stdout } = await run("supabase", ["orgs", "list", "--json"]);
-    const orgs = JSON.parse(stdout);
-    if (!Array.isArray(orgs)) throw new Error("unexpected output");
+    await run("supabase", ["orgs", "list"]);
   } catch {
     throw new Error("Not logged into Supabase. Run: supabase login");
   }

@@ -1,5 +1,43 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { run, runInherit } from "./exec.js";
+
+const SUPABASE_API = "https://api.supabase.com/v1";
+
+function getSupabaseToken(): string {
+  if (process.env.SUPABASE_ACCESS_TOKEN)
+    return process.env.SUPABASE_ACCESS_TOKEN;
+  const dir = process.env.SUPABASE_DATA_PATH ?? join(homedir(), ".supabase");
+  try {
+    return readFileSync(join(dir, "access-token"), "utf8").trim();
+  } catch {
+    throw new Error("Supabase access token not found. Run: supabase login");
+  }
+}
+
+async function supabaseRequest<T>(
+  method: string,
+  path: string,
+  body?: object,
+): Promise<T> {
+  const token = getSupabaseToken();
+  const res = await fetch(`${SUPABASE_API}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `Supabase API ${method} ${path} failed (${res.status}): ${text}`,
+    );
+  }
+  return res.json() as Promise<T>;
+}
 
 const REPO_URL = "git@github.com:leongcheefai/vanta-base-admin.git";
 
@@ -201,14 +239,17 @@ export async function supabaseLogin(): Promise<void> {
 export async function listSupabaseOrgs(): Promise<
   { id: string; name: string }[]
 > {
-  const { stdout } = await run("supabase", ["orgs", "list", "--json"]);
-  const orgs = JSON.parse(stdout) as { id: string; name: string }[];
+  const orgs = await supabaseRequest<{ id: string; name: string }[]>(
+    "GET",
+    "/organizations",
+  );
   return orgs.map((o) => ({ id: o.id, name: o.name }));
 }
 
 export async function createSupabaseOrg(name: string): Promise<string> {
-  const { stdout } = await run("supabase", ["orgs", "create", name, "--json"]);
-  const org = JSON.parse(stdout) as { id: string };
+  const org = await supabaseRequest<{ id: string }>("POST", "/organizations", {
+    name,
+  });
   return org.id;
 }
 
@@ -218,23 +259,14 @@ export async function createSupabaseProject(
   password: string,
   region: string,
 ): Promise<string> {
-  const { stdout } = await run("supabase", [
-    "projects",
-    "create",
+  const project = await supabaseRequest<{ id: string }>("POST", "/projects", {
     name,
-    "--org-id",
-    orgId,
-    "--db-password",
-    password,
-    "--region",
+    organization_id: orgId,
+    db_pass: password,
     region,
-    "--json",
-  ]);
-  const project = JSON.parse(stdout) as { id?: string; ref?: string };
-  const ref = project.ref ?? project.id;
-  if (!ref)
-    throw new Error("Could not extract project ref from Supabase output.");
-  return ref;
+    plan: "free",
+  });
+  return project.id;
 }
 
 export async function waitForSupabaseProject(
@@ -243,14 +275,15 @@ export async function waitForSupabaseProject(
   delayMs = 5000,
 ): Promise<void> {
   for (let i = 0; i < retries; i++) {
-    const { stdout } = await run("supabase", [
-      "projects",
-      "get",
-      ref,
-      "--json",
-    ]);
-    const project = JSON.parse(stdout) as { status?: string };
-    if (project.status === "ACTIVE_HEALTHY") return;
+    try {
+      const project = await supabaseRequest<{ status?: string }>(
+        "GET",
+        `/projects/${ref}`,
+      );
+      if (project.status === "ACTIVE_HEALTHY") return;
+    } catch {
+      // transient API error — keep polling
+    }
     await new Promise((r) => setTimeout(r, delayMs));
   }
   throw new Error(
