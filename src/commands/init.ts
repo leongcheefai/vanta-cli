@@ -54,6 +54,25 @@ async function runStep(label: string, fn: () => Promise<void>): Promise<void> {
   }
 }
 
+// Like runStep but warns and returns false instead of exiting — use for
+// optional steps where failure should fall back gracefully.
+async function runStepSoft(
+  label: string,
+  fn: () => Promise<void>,
+): Promise<boolean> {
+  const spinner = clack.spinner();
+  spinner.start(label);
+  try {
+    await fn();
+    spinner.stop(label);
+    return true;
+  } catch (err: unknown) {
+    spinner.stop(label, 1);
+    clack.log.warn(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
 function abort(msg: string): never {
   clack.cancel(msg);
   process.exit(1);
@@ -502,40 +521,48 @@ export async function init(name: string): Promise<void> {
     const orgId = supabaseOrgId;
     const dbPassword = supabaseDbPassword;
     let ref = "";
-    try {
-      await runStep(
-        `Creating Supabase project "${supabaseProjName}"`,
-        async () => {
-          ref = await createSupabaseProject(
-            orgId,
-            supabaseProjName,
-            dbPassword,
-            supabaseRegion,
+
+    const projOk = await runStepSoft(
+      `Creating Supabase project "${supabaseProjName}"`,
+      async () => {
+        ref = await createSupabaseProject(
+          orgId,
+          supabaseProjName,
+          dbPassword,
+          supabaseRegion,
+        );
+      },
+    );
+
+    if (projOk && ref) {
+      const waitOk = await runStepSoft(
+        "Waiting for Supabase project to be ready (this can take 1–2 min)",
+        () => waitForSupabaseProject(ref),
+      );
+
+      if (waitOk) {
+        supabaseDbUrl = buildSupabaseDbUrl(ref, dbPassword);
+        // Migrations and seed on Supabase are best-effort — Railway still gets
+        // the real URL even if they fail so the user can run them manually.
+        await runStepSoft("Running migrations on Supabase", () =>
+          runMigrations(projectDir, supabaseDbUrl),
+        );
+        if (adminEmail && adminPassword) {
+          const e = adminEmail;
+          const p = adminPassword;
+          await runStepSoft("Seeding admin on Supabase", () =>
+            seedAdmin(projectDir, e, p, supabaseDbUrl),
           );
-        },
-      );
-      await runStep("Waiting for Supabase project to be ready", () =>
-        waitForSupabaseProject(ref),
-      );
-      supabaseDbUrl = buildSupabaseDbUrl(ref, dbPassword);
-      await runStep("Running migrations on Supabase", () =>
-        runMigrations(projectDir, supabaseDbUrl),
-      );
-      if (adminEmail && adminPassword) {
-        const e = adminEmail;
-        const p = adminPassword;
-        await runStep("Seeding admin on Supabase", () =>
-          seedAdmin(projectDir, e, p, supabaseDbUrl),
+        }
+      } else {
+        clack.log.warn(
+          "Supabase project not ready in time. Railway will deploy with placeholder DATABASE_URL.",
         );
       }
-    } catch (err: unknown) {
+    } else {
       clack.log.warn(
-        `Supabase provisioning failed: ${err instanceof Error ? err.message : String(err)}`,
+        "Supabase project creation failed. Railway will deploy with placeholder DATABASE_URL.",
       );
-      clack.log.warn(
-        "Railway will deploy with placeholder DATABASE_URL. Update it in Railway dashboard → Variables.",
-      );
-      supabaseDbUrl = undefined;
     }
   }
 

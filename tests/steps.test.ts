@@ -508,15 +508,15 @@ describe("waitForSupabaseProject", () => {
 });
 
 describe("buildSupabaseDbUrl", () => {
-  it("builds correct postgresql URL", () => {
+  it("builds correct postgresql URL with sslmode=require", () => {
     expect(buildSupabaseDbUrl("abcdefghijklmnop", "mypassword")).toBe(
-      "postgresql://postgres:mypassword@db.abcdefghijklmnop.supabase.co:5432/postgres",
+      "postgresql://postgres:mypassword@db.abcdefghijklmnop.supabase.co:5432/postgres?sslmode=require",
     );
   });
 
   it("percent-encodes special chars in password", () => {
     expect(buildSupabaseDbUrl("ref123", "p@ss:w/rd")).toBe(
-      "postgresql://postgres:p%40ss%3Aw%2Frd@db.ref123.supabase.co:5432/postgres",
+      "postgresql://postgres:p%40ss%3Aw%2Frd@db.ref123.supabase.co:5432/postgres?sslmode=require",
     );
   });
 });

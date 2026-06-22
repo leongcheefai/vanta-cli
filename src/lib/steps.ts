@@ -294,5 +294,5 @@ export async function waitForSupabaseProject(
 }
 
 export function buildSupabaseDbUrl(ref: string, password: string): string {
-  return `postgresql://postgres:${encodeURIComponent(password)}@db.${ref}.supabase.co:5432/postgres`;
+  return `postgresql://postgres:${encodeURIComponent(password)}@db.${ref}.supabase.co:5432/postgres?sslmode=require`;
 }
