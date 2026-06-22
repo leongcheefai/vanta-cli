@@ -549,9 +549,8 @@ export async function init(name: string): Promise<void> {
     adminPassword = pw;
 
     const localEmail = adminEmail as string;
-    const localPw = pw;
     await runStep("Creating admin user", () =>
-      seedAdmin(projectDir, localEmail, localPw),
+      seedAdmin(projectDir, localEmail, pw),
     );
   }
 

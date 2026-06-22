@@ -7,7 +7,7 @@ function parseSupabaseTable(stdout: string): string[][] {
   return stdout
     .split("\n")
     .filter((l) => l.includes(SEP) && !/^[-|+\s]+$/.test(l.trim()))
-    .slice(1) // drop header row (ID | NAME | ...)
+    .slice(1)
     .map((l) =>
       l
         .split(SEP)
@@ -144,9 +144,7 @@ export async function railwayLogin(): Promise<void> {
   await runInherit("railway", ["login"]);
 }
 
-// Placeholder env vars so the deployed NestJS app passes zod validation at
-// startup. The user must replace these with real values in the Railway
-// dashboard (Variables tab) before the backend is usable.
+// Placeholders so Railway deploy boots — replace in dashboard → Variables.
 const RAILWAY_PLACEHOLDER_VARS = [
   "DATABASE_URL=postgresql://postgres:placeholder@placeholder:5432/railway",
   "BETTER_AUTH_SECRET=change-me-to-a-real-secret-min-32-chars!!",
