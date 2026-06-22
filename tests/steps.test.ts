@@ -359,18 +359,19 @@ describe("installSupabaseCli", () => {
   });
 });
 
+// Supabase CLI wraps rows with │ borders: │ col1 │ col2 │
 const ORGS_TABLE = [
   "      ID │ Name",
   "──────────┼──────────",
-  " org-1 │ Acme Corp",
-  " org-2 │ Beta Inc",
+  "│ org-1 │ Acme Corp │",
+  "│ org-2 │ Beta Inc │",
 ].join("\n");
 
 const PROJECTS_TABLE = [
   "      ID │ Name │ Region │ Status",
   "──────────────────────┼────────────┼─────────────────┼──────────────",
-  " abcdefghijklmnop │ my-project │ ap-southeast-1 │ ACTIVE_HEALTHY",
-  " zyxwvutsrqponml │ other-proj │ us-east-1 │ COMING_UP",
+  "│ abcdefghijklmnop │ my-project │ ap-southeast-1 │ ACTIVE_HEALTHY │",
+  "│ zyxwvutsrqponml │ other-proj │ us-east-1 │ COMING_UP │",
 ].join("\n");
 
 describe("listSupabaseOrgs", () => {
@@ -470,7 +471,7 @@ describe("waitForSupabaseProject", () => {
     const comingUpTable = [
       "      ID │ Name │ Status",
       "──────────────────────┼────────────┼──────────────",
-      " abcdefghijklmnop │ my-project │ COMING_UP",
+      "│ abcdefghijklmnop │ my-project │ COMING_UP │",
     ].join("\n");
     vi.mocked(run)
       .mockResolvedValueOnce({ stdout: comingUpTable, stderr: "" })
@@ -494,7 +495,7 @@ describe("waitForSupabaseProject", () => {
     const comingUpTable = [
       "      ID │ Name │ Status",
       "──────────────────────┼────────────┼──────────────",
-      " abcdefghijklmnop │ my-project │ COMING_UP",
+      "│ abcdefghijklmnop │ my-project │ COMING_UP │",
     ].join("\n");
     vi.mocked(run).mockResolvedValue({ stdout: comingUpTable, stderr: "" });
     await expect(

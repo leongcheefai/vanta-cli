@@ -9,8 +9,13 @@ function parseSupabaseTable(stdout: string): string[][] {
     .split("\n")
     .filter((l) => l.includes(SEP) && !/^[─┼\s│]+$/.test(l.trim()))
     .slice(1) // drop header row (ID │ Name │ ...)
-    .map((l) => l.split(SEP).map((s) => s.trim()))
-    .filter((cols) => cols.some((c) => c.length > 0));
+    .map((l) =>
+      l
+        .split(SEP)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    )
+    .filter((cols) => cols.length > 0);
 }
 
 const REPO_URL = "git@github.com:leongcheefai/vanta-base-admin.git";
